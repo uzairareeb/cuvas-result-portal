@@ -8,17 +8,22 @@
 <div class="grid2">
   <div class="card">
     <h2>Upload Result List</h2>
-    <p class="muted">Upload a CSV or Excel file. It must have a <strong>Name</strong> column and a <strong>CNIC</strong> column.
-      Optional: Father Name, Roll No, Discipline, Test Date, Obtained, Total, Merit No.</p>
+    <p class="muted">Upload a CSV or Excel file with these columns in order:
+      <strong>Name</strong>, <strong>Father's Name</strong>, <strong>CNIC</strong>,
+      <strong>Applied Degree</strong>, <strong>Held On</strong> (test date, e.g. 15-Sep-2025),
+      <strong>Total Marks</strong>, <strong>Obtained Marks</strong>.
+      Passing Marks (60% of total), Result Status and Valid Till (1 year from test date)
+      are calculated automatically.</p>
     <form method="post" action="{{ url_for('admin_upload') }}" enctype="multipart/form-data" class="cnic-form">
       <input type="file" name="file" accept=".csv,.xlsx,.xls" required>
       <button type="submit">Upload</button>
     </form>
+    <p style="margin-top:10px"><a class="btn" href="{{ url_for('admin_template') }}">Download Excel Template</a></p>
   </div>
   <div class="card">
     <h2>Settings</h2>
     <form method="post" action="{{ url_for('admin_settings') }}">
-      <label>Passing percentage
+      <label>Passing percentage of total marks
         <input type="number" name="passing_percent" value="{{ passing }}" min="0" max="100" step="1" required>
       </label>
       <label class="check"><input type="checkbox" name="published" {% if published %}checked{% endif %}>
@@ -37,12 +42,11 @@
   {% if rows %}
   <div class="table-wrap">
   <table>
-    <tr><th>Name</th><th>CNIC</th><th>Roll No</th><th>Discipline</th><th>Marks</th><th>Merit</th></tr>
+    <tr><th>Name</th><th>CNIC</th><th>Applied Degree</th><th>Held On</th><th>Marks</th></tr>
     {% for r in rows %}
     <tr>
-      <td>{{ r.name }}</td><td>{{ r.cnic }}</td><td>{{ r.roll_no or "-" }}</td>
-      <td>{{ r.discipline or "-" }}</td><td>{{ r.obtained or "-" }} / {{ r.total or "-" }}</td>
-      <td>{{ r.merit_no or "-" }}</td>
+      <td>{{ r.name }}</td><td>{{ r.cnic }}</td><td>{{ r.discipline or "-" }}</td>
+      <td>{{ r.test_date or "-" }}</td><td>{{ r.obtained or "-" }} / {{ r.total or "-" }}</td>
     </tr>
     {% endfor %}
   </table>

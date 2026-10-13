@@ -1,28 +1,49 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="card result-card">
-  <div class="card-head">
-    <div>
-      <h1>PhD Entry Test Result Card</h1>
-      <p class="muted">{% if r.test_date %}Test held on {{ r.test_date }} &middot; {% endif %}{{ short }}</p>
+<div class="rcard-wrap">
+  <div class="rcard">
+    <div class="rhead">
+      <div class="rlogo"><span class="rl1">CUVAS</span><span class="rl2">CHOLISTAN UNIVERSITY OF VETERINARY<br>AND ANIMAL SCIENCES, BAHAWALPUR</span></div>
+      <div class="runititle">Cholistan University of Veterinary &amp; Animal Sciences, Bahawalpur</div>
     </div>
-    <div class="stamp {{ status|lower }}">{{ status }}</div>
+    <div class="rsub">CUVAS - Admission Test (Postgraduate)</div>
+    <div class="rheld">Held On:&nbsp; {{ card.held_on }}</div>
+    <div class="rbody">
+      <div class="rfields">
+        <div class="frow">
+          <div><span class="lab">Name:</span> {{ card.name }}</div>
+          <div><span class="lab">Father's Name:</span> {{ card.father_name }}</div>
+        </div>
+        <div class="frow">
+          <div><span class="lab">CNIC:</span> {{ card.cnic }}</div>
+          <div><span class="lab">Applied Degree:</span> {{ card.degree }}</div>
+        </div>
+      </div>
+      <div class="rphoto" aria-hidden="true">
+        <svg viewBox="0 0 100 110" width="100%" height="100%">
+          <rect width="100" height="110" fill="#e4e4e4"/>
+          <circle cx="50" cy="42" r="19" fill="#8d8d8d"/>
+          <ellipse cx="50" cy="108" rx="34" ry="30" fill="#8d8d8d"/>
+        </svg>
+      </div>
+    </div>
+    <table class="rtable">
+      <tr>
+        <td class="lab2">Total Marks:</td><td class="val">{{ card.total }}</td>
+        <td class="lab2">Obtained Marks:</td><td class="val">{{ card.obtained }}</td>
+        <td class="lab2">Valid Till:</td><td class="val">{{ card.valid_till }}</td>
+      </tr>
+      <tr>
+        <td class="lab2">Passing Marks:</td><td class="val">{{ card.passing_marks }}</td>
+        <td class="lab2">Result Status:</td>
+        <td class="val status-{{ 'q' if card.status == 'Qualified' else 'nq' }}" colspan="3">{{ card.status }}</td>
+      </tr>
+    </table>
+    <div class="rfoot">&copy; {{ card.footer_year }} &nbsp; Cholistan University of Veterinary &amp; Animal Sciences, Bahawalpur</div>
   </div>
-  <dl class="details">
-    <div><dt>Candidate Name</dt><dd>{{ r.name }}</dd></div>
-    <div><dt>Father Name</dt><dd>{{ r.father_name or "&mdash;" }}</dd></div>
-    <div><dt>CNIC</dt><dd>{{ r.cnic }}</dd></div>
-    <div><dt>Roll No</dt><dd>{{ r.roll_no or "&mdash;" }}</dd></div>
-    <div><dt>Discipline / Department</dt><dd>{{ r.discipline or "&mdash;" }}</dd></div>
-    <div><dt>Marks Obtained</dt><dd><strong>{{ r.obtained }} / {{ r.total }}</strong></dd></div>
-    <div><dt>Percentage</dt><dd><strong>{{ pct }}%</strong></dd></div>
-    {% if r.merit_no %}<div><dt>Merit No</dt><dd><strong>{{ r.merit_no }}</strong></dd></div>{% endif %}
-    <div><dt>Passing Criteria</dt><dd>{{ passing }}%</dd></div>
-  </dl>
   <div class="actions">
-    <a class="btn primary" href="{{ url_for('result_pdf', cnic=r.cnic) }}">Download PDF Result Card</a>
+    <a class="btn primary" href="{{ url_for('result_pdf', cnic=card.cnic_raw) }}">Download PDF Result Card</a>
     <a class="btn" href="{{ url_for('index') }}">Check Another CNIC</a>
   </div>
-  <p class="fine">This is a computer-generated result card. For verification contact the Directorate of Advanced Studies, CUVAS.</p>
 </div>
 {% endblock %}
