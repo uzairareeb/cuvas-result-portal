@@ -62,7 +62,9 @@ body {
 .hero-badge svg { width: 34px; height: 34px; }
 .hero h1 { margin: 0 0 8px; font-size: 30px; font-weight: 800; letter-spacing: -.5px; }
 .lede { color: var(--muted); font-size: 15.5px; margin: 0 0 24px; line-height: 1.55; }
-.search-card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 26px; text-align: left; }
+.search-card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 28px; text-align: left; position: relative; overflow: hidden; }
+.search-card::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 4px; background: var(--primary); }
+.field-hint { font-size: 12.5px; color: var(--muted); margin: -8px 0 18px; }
 .trust-row { display: flex; justify-content: center; gap: 26px; margin-top: 26px; flex-wrap: wrap; }
 .trust-row div { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13.5px; font-weight: 500; }
 .trust-row svg { width: 17px; height: 17px; color: var(--primary); }
