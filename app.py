@@ -34,7 +34,7 @@ ALLOWED_EXT = {"csv", "xlsx", "xls"}
 
 COLUMN_MAP = {
     "name": ["name", "candidate name", "candidate", "student name", "applicant name"],
-    "father_name": ["father name", "father_name", "father", "fathers name", "s/o d/o"],
+    "father_name": ["father name", "father's name", "father_name", "father", "fathers name", "s/o d/o"],
     "cnic": ["cnic", "cnic no", "cnic number", "nic", "national id"],
     "roll_no": ["roll no", "roll_no", "roll number", "rollnumber", "seat no"],
     "discipline": ["discipline", "applied degree", "degree", "program", "programme",
@@ -386,13 +386,18 @@ def build_pdf(card):
     c.setLineWidth(1.2)
     c.rect(bx, bbot, bw, btop - bbot, stroke=1, fill=0)
 
-    # Header: logo box + university name
-    lx, ly, lw, lh = bx + 16, btop - 58, 96, 44
-    c.setFillColor(BLUE)
-    c.rect(lx, ly, lw, lh, stroke=0, fill=1)
-    c.setFillColor(colors.white)
-    c.setFont("Helvetica-Bold", 19)
-    c.drawCentredString(lx + lw / 2, ly + 17, "CUVAS")
+    # Header: official logo + university name
+    lx, ly, lh = bx + 16, btop - 62, 48
+    lw = lh * 270 / 148
+    logo_path = os.path.join(BASE_DIR, "static", "img", "cuvas-logo.png")
+    if os.path.exists(logo_path):
+        c.drawImage(logo_path, lx, ly, lw, lh, preserveAspectRatio=True)
+    else:  # fallback text logo
+        c.setFillColor(BLUE)
+        c.rect(lx, ly, 96, 44, stroke=0, fill=1)
+        c.setFillColor(colors.white)
+        c.setFont("Helvetica-Bold", 19)
+        c.drawCentredString(lx + 48, ly + 17, "CUVAS")
     c.setFont("Helvetica-Bold", 12.5)
     c.setFillColor(DARK)
     c.drawString(lx + lw + 12, ly + 16,
