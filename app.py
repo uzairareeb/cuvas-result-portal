@@ -515,11 +515,19 @@ def admin_logout():
 def admin_dashboard():
     rows = get_db().fetchall("SELECT * FROM candidates ORDER BY name")
     rows = [dict(r) for r in rows]
-    passing = get_setting("passing_percent", "50")
+    passing = get_setting("passing_percent", "60")
+    try:
+        passing_pct = float(passing)
+    except (TypeError, ValueError):
+        passing_pct = 60.0
     published = get_setting("published", "1") == "1"
+    for r in rows:
+        _, r["status"] = calc_result(r.get("obtained"), r.get("total"), passing_pct)
+    qcount = sum(1 for r in rows if r["status"] == "Qualified")
     return render_template("admin.html", uni=UNI_NAME, title=PORTAL_TITLE,
                            rows=rows, passing=passing, published=published,
-                           total=len(rows))
+                           total=len(rows), qcount=qcount,
+                           nqcount=len(rows) - qcount)
 
 
 @app.route("/admin/settings", methods=["POST"])
