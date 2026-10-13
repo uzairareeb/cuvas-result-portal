@@ -370,9 +370,7 @@ def build_pdf(card):
     from reportlab.lib import colors
     from reportlab.pdfgen import canvas
 
-    BLUE = colors.HexColor("#2f6df6")
-    PURPLE = colors.HexColor("#7b2ff7")
-    INDIGO = colors.HexColor("#5a3df0")
+    SOLID = colors.HexColor("#2d3290")
     DARK = colors.HexColor("#111111")
     LBL_BG = colors.HexColor("#eef0fb")
     LINE = colors.HexColor("#333333")
@@ -382,14 +380,9 @@ def build_pdf(card):
     buf = io.BytesIO()
     c = canvas.Canvas(buf, pagesize=(W, H))
 
-    def hgradient(x, y, w, h, steps=140):
-        for i in range(steps):
-            t = i / (steps - 1)
-            r = BLUE.red + (PURPLE.red - BLUE.red) * t
-            g = BLUE.green + (PURPLE.green - BLUE.green) * t
-            b = BLUE.blue + (PURPLE.blue - BLUE.blue) * t
-            c.setFillColor(colors.Color(r, g, b))
-            c.rect(x + w * i / steps, y, w / steps + 0.6, h, stroke=0, fill=1)
+    def band(x, y, w, h):
+        c.setFillColor(SOLID)
+        c.rect(x, y, w, h, stroke=0, fill=1)
 
     # Card border
     bx, bw = 14, W - 28
@@ -410,15 +403,15 @@ def build_pdf(card):
     c.drawString(lx + lw + 12, ly + 17,
                  "Cholistan University of Veterinary & Animal Sciences, Bahawalpur")
 
-    # Gradient rule
-    hgradient(bx + 16, ly - 12, bw - 32, 3)
+    # Solid rule
+    band(bx + 16, ly - 12, bw - 32, 3)
 
     # Title block
     cx = bx + bw / 2
     c.setFillColor(DARK)
     c.setFont("Helvetica", 12.5)
     c.drawCentredString(cx, ly - 42, "CUVAS - Admission Test (Postgraduate)")
-    c.setFillColor(INDIGO)
+    c.setFillColor(SOLID)
     c.setFont("Helvetica-Bold", 12.5)
     c.drawCentredString(cx, ly - 64, f"Held On:  {card['held_on']}")
 
@@ -464,7 +457,7 @@ def build_pdf(card):
             c.setFillColor(colors.white)
             c.rect(x + lab_w, ry - rh, val_w, rh, stroke=0, fill=1)
             if lab == "Result Status:":
-                c.setFillColor(BLUE if val == "Qualified" else RED)
+                c.setFillColor(SOLID if val == "Qualified" else RED)
                 c.setFont("Helvetica-Bold", 11.5)
             else:
                 c.setFillColor(DARK)
@@ -475,9 +468,9 @@ def build_pdf(card):
             c.rect(x + lab_w, ry - rh, val_w, rh, stroke=1, fill=0)
             x += lab_w + val_w
 
-    # Gradient footer band
+    # Solid footer band
     fh = 36
-    hgradient(bx, bbot, bw, fh)
+    band(bx, bbot, bw, fh)
     c.setFillColor(colors.white)
     c.setFont("Helvetica", 10.5)
     c.drawCentredString(cx, bbot + 13,
@@ -665,7 +658,7 @@ def admin_template():
     ws.append(headers)
     for cell in ws[1]:
         cell.font = Font(bold=True, color="FFFFFF")
-        cell.fill = PatternFill("solid", fgColor="2F6DF6")
+        cell.fill = PatternFill("solid", fgColor="2D3290")
         cell.alignment = Alignment(horizontal="center")
     ws.append(["Manzar Hayat", "Khizar Hayat", "36103-4695497-1",
                "PhD Zoology", "15-Sep-2025", 50, 45])
