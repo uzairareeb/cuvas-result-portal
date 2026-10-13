@@ -13,7 +13,7 @@ import io
 import os
 import re
 import sqlite3
-from datetime import datetime
+from datetime import datetime, date
 from functools import wraps
 
 from flask import (Flask, flash, g, redirect, render_template, request,
@@ -262,7 +262,8 @@ def calc_result(obtained, total, passing_percent):
 
 
 _DATE_FORMATS = ("%d-%b-%Y", "%d %b %Y", "%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y",
-                 "%m/%d/%Y", "%b %d, %Y", "%d.%m.%Y", "%Y/%m/%d")
+                 "%m/%d/%Y", "%b %d, %Y", "%d.%m.%Y", "%Y/%m/%d",
+                 "%Y-%m-%d %H:%M:%S", "%d-%b-%Y %H:%M:%S", "%d/%m/%Y %H:%M:%S")
 
 
 def fmt_cnic(cnic):
@@ -361,158 +362,131 @@ def result_pdf(cnic):
 
 # ---------------- PDF generation ----------------
 def build_pdf(card):
-    """Result card PDF matching the official CUVAS template:
-    logo header, Admission Test (Postgraduate), Held On, candidate fields,
-    photo placeholder, marks table with Valid Till + Result Status, blue footer.
+    """Result card PDF matching the web card exactly.
+
+    The page itself is card-sized (no A4 whitespace): same layout,
+    same proportions as the on-screen result card.
     """
     from reportlab.lib import colors
-    from reportlab.lib.pagesizes import A4
     from reportlab.pdfgen import canvas
 
-    buf = io.BytesIO()
-    c = canvas.Canvas(buf, pagesize=A4)
-    W, H = A4
-    GREEN = colors.HexColor("#0b7a3e")
-    BLUE = colors.HexColor("#232a7a")
+    BLUE = colors.HexColor("#2f6df6")
+    PURPLE = colors.HexColor("#7b2ff7")
+    INDIGO = colors.HexColor("#5a3df0")
     DARK = colors.HexColor("#111111")
-    GREY = colors.HexColor("#555555")
-    LBL_BG = colors.HexColor("#eef0fa")
+    LBL_BG = colors.HexColor("#eef0fb")
     LINE = colors.HexColor("#333333")
+    RED = colors.HexColor("#b3261e")
+
+    W, H = 760, 470  # card-sized page: same look as the web card
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=(W, H))
+
+    def hgradient(x, y, w, h, steps=140):
+        for i in range(steps):
+            t = i / (steps - 1)
+            r = BLUE.red + (PURPLE.red - BLUE.red) * t
+            g = BLUE.green + (PURPLE.green - BLUE.green) * t
+            b = BLUE.blue + (PURPLE.blue - BLUE.blue) * t
+            c.setFillColor(colors.Color(r, g, b))
+            c.rect(x + w * i / steps, y, w / steps + 0.6, h, stroke=0, fill=1)
 
     # Card border
-    bx, bw = 30, W - 60
-    btop, bbot = H - 52, 52
+    bx, bw = 14, W - 28
+    btop, bbot = H - 14, 14
     c.setStrokeColor(DARK)
     c.setLineWidth(1.2)
     c.rect(bx, bbot, bw, btop - bbot, stroke=1, fill=0)
 
     # Header: official logo + university name
-    lx, ly, lh = bx + 16, btop - 62, 48
+    lh = 46
     lw = lh * 270 / 148
+    lx, ly = bx + 16, btop - 16 - lh
     logo_path = os.path.join(BASE_DIR, "static", "img", "cuvas-logo.png")
     if os.path.exists(logo_path):
         c.drawImage(logo_path, lx, ly, lw, lh, preserveAspectRatio=True)
-    else:  # fallback text logo
-        c.setFillColor(BLUE)
-        c.rect(lx, ly, 96, 44, stroke=0, fill=1)
-        c.setFillColor(colors.white)
-        c.setFont("Helvetica-Bold", 19)
-        c.drawCentredString(lx + 48, ly + 17, "CUVAS")
-    c.setFont("Helvetica-Bold", 12.5)
+    c.setFont("Helvetica-Bold", 13)
     c.setFillColor(DARK)
-    c.drawString(lx + lw + 12, ly + 16,
+    c.drawString(lx + lw + 12, ly + 17,
                  "Cholistan University of Veterinary & Animal Sciences, Bahawalpur")
 
-    # Green rule
-    c.setStrokeColor(GREEN)
-    c.setLineWidth(2)
-    c.line(bx + 16, ly - 12, bx + bw - 16, ly - 12)
+    # Gradient rule
+    hgradient(bx + 16, ly - 12, bw - 32, 3)
 
     # Title block
-    cy = W / 2
+    cx = bx + bw / 2
     c.setFillColor(DARK)
-    c.setFont("Helvetica", 12)
-    c.drawCentredString(cy, ly - 40, "CUVAS - Admission Test (Postgraduate)")
-    c.setFillColor(GREEN)
-    c.setFont("Helvetica-Bold", 12)
-    c.drawCentredString(cy, ly - 62, f"Held On:  {card['held_on']}")
+    c.setFont("Helvetica", 12.5)
+    c.drawCentredString(cx, ly - 42, "CUVAS - Admission Test (Postgraduate)")
+    c.setFillColor(INDIGO)
+    c.setFont("Helvetica-Bold", 12.5)
+    c.drawCentredString(cx, ly - 64, f"Held On:  {card['held_on']}")
 
-    # Candidate fields (two columns; right side reserved for the photo box)
-    fy = ly - 108
-    photo_w = 102
-    fields_right = bx + bw - 16 - photo_w - 14
+    # Candidate fields (full width, two columns)
+    fy = ly - 106
     col1_x = bx + 16
-    col2_x = col1_x + (fields_right - col1_x) / 2
-    val_dx = 100
-    c.setFont("Helvetica-Bold", 10.5)
+    col2_x = bx + 16 + (bw - 32) / 2
+    val_dx = 104
     c.setFillColor(DARK)
+    c.setFont("Helvetica-Bold", 11)
     c.drawString(col1_x, fy, "Name:")
     c.drawString(col2_x, fy, "Father's Name:")
     c.drawString(col1_x, fy - 34, "CNIC:")
     c.drawString(col2_x, fy - 34, "Applied Degree:")
-    c.setFont("Helvetica", 10.5)
+    c.setFont("Helvetica", 11)
     c.drawString(col1_x + val_dx, fy, card["name"])
     c.drawString(col2_x + val_dx, fy, card["father_name"])
     c.drawString(col1_x + val_dx, fy - 34, card["cnic"])
     c.drawString(col2_x + val_dx, fy - 34, card["degree"])
 
-    # Photo placeholder (silhouette), vertically centered on the field rows
-    px, pw, ph = fields_right + 14, photo_w, 112
-    py = fy - 72
-    c.saveState()
-    clip = c.beginPath()
-    clip.roundRect(px, py, pw, ph, 2)
-    c.clipPath(clip, stroke=0, fill=0)
-    c.setFillColor(colors.HexColor("#e4e4e4"))
-    c.rect(px, py, pw, ph, stroke=0, fill=1)
-    c.setFillColor(colors.HexColor("#8d8d8d"))
-    scx = px + pw / 2
-    c.circle(scx, py + 72, 18, stroke=0, fill=1)        # head
-    c.ellipse(scx - 32, py + 2, 64, 56, stroke=0, fill=1)  # shoulders
-    c.restoreState()
-    c.setStrokeColor(colors.HexColor("#b5b5b5"))
-    c.setLineWidth(1)
-    c.roundRect(px, py, pw, ph, 2, stroke=1, fill=0)
-
     # Marks table
     tx, tw = bx + 16, bw - 32
-    ty, rh = fy - 108, 30
-    # Marks table: 6 columns; row 2 merges the last cell for Result Status.
-    cols = [88, 78, 108, 62, 72, 91]  # sums to 499
-    rows_spec = [
-        [("Total Marks:", card["total"], 2),
-         ("Obtained Marks:", card["obtained"], 2),
-         ("Valid Till:", card["valid_till"], 2)],
-        [("Passing Marks:", card["passing_marks"], 2),
-         ("Result Status:", card["status"], 4)],
+    ty, rh = fy - 66, 30
+    pairs = [  # (label, label_w, value_w)
+        [("Total Marks:", 124, 110), ("Obtained Marks:", 150, 86),
+         ("Valid Till:", 100, 130)],
+        [("Passing Marks:", 124, 110), ("Result Status:", 150, 316)],
     ]
+    values = {"Total Marks:": card["total"], "Obtained Marks:": card["obtained"],
+              "Valid Till:": card["valid_till"], "Passing Marks:": card["passing_marks"],
+              "Result Status:": card["status"]}
     c.setLineWidth(1)
-    for row_i, cells in enumerate(rows_spec):
+    for row_i, cells in enumerate(pairs):
         ry = ty - row_i * rh
         x = tx
-        ci = 0
-        for lab, val, ncols in cells:
-            lab_w = cols[ci]
-            cw = sum(cols[ci:ci + ncols])
-            val_w = cw - lab_w
-            # label cell
+        for lab, lab_w, val_w in cells:
+            val = values[lab]
             c.setFillColor(LBL_BG)
             c.rect(x, ry - rh, lab_w, rh, stroke=0, fill=1)
             c.setFillColor(DARK)
-            c.setFont("Helvetica-Bold", 10.5)
+            c.setFont("Helvetica-Bold", 11)
             c.drawCentredString(x + lab_w / 2, ry - 20, lab)
-            # value cell
             c.setFillColor(colors.white)
             c.rect(x + lab_w, ry - rh, val_w, rh, stroke=0, fill=1)
             if lab == "Result Status:":
-                c.setFillColor(GREEN if val == "Qualified" else colors.HexColor("#b3261e"))
-                c.setFont("Helvetica-Bold", 11)
+                c.setFillColor(BLUE if val == "Qualified" else RED)
+                c.setFont("Helvetica-Bold", 11.5)
             else:
                 c.setFillColor(DARK)
-                c.setFont("Helvetica", 10.5)
+                c.setFont("Helvetica", 11)
             c.drawCentredString(x + lab_w + val_w / 2, ry - 20, str(val))
-            # cell borders: one rect per label cell and value cell
-            # (no internal dividers inside merged cells)
             c.setStrokeColor(LINE)
             c.rect(x, ry - rh, lab_w, rh, stroke=1, fill=0)
             c.rect(x + lab_w, ry - rh, val_w, rh, stroke=1, fill=0)
-            x += cw
-            ci += ncols
+            x += lab_w + val_w
 
-    # Blue footer band
-    fh = 34
-    c.setFillColor(BLUE)
-    c.rect(bx + 14, bbot + 22, bw - 28, fh, stroke=0, fill=1)
+    # Gradient footer band
+    fh = 36
+    hgradient(bx, bbot, bw, fh)
     c.setFillColor(colors.white)
-    c.setFont("Helvetica", 10)
-    c.drawCentredString(cy, bbot + 34,
+    c.setFont("Helvetica", 10.5)
+    c.drawCentredString(cx, bbot + 13,
                         f"\u00a9 {card['footer_year']}   Cholistan University of Veterinary & Animal Sciences, Bahawalpur")
 
     c.showPage()
     c.save()
     buf.seek(0)
     return buf
-
 
 # ---------------- admin side ----------------
 def admin_required(f):
@@ -650,6 +624,12 @@ def admin_upload():
         for hdr, val in rr.items():
             field = mapping.get(hdr)
             if field:
+                # Excel often gives real datetime objects (with 00:00:00 time);
+                # store them as clean dates so no timestamp leaks onto the card.
+                if isinstance(val, datetime):
+                    val = val.strftime("%d-%b-%Y")
+                elif isinstance(val, date):
+                    val = val.strftime("%d-%b-%Y")
                 rec[field] = str(val).strip() if val is not None else ""
         cnic = norm_cnic(rec.get("cnic", ""))
         if not rec.get("name") or len(cnic) != 13:
@@ -685,7 +665,7 @@ def admin_template():
     ws.append(headers)
     for cell in ws[1]:
         cell.font = Font(bold=True, color="FFFFFF")
-        cell.fill = PatternFill("solid", fgColor="0B6B3A")
+        cell.fill = PatternFill("solid", fgColor="2F6DF6")
         cell.alignment = Alignment(horizontal="center")
     ws.append(["Manzar Hayat", "Khizar Hayat", "36103-4695497-1",
                "PhD Zoology", "15-Sep-2025", 50, 45])
