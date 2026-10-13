@@ -164,25 +164,25 @@ tbody tr:hover { background: #fafbff; }
 .notfound .hero-badge { margin-bottom: 14px; }
 .notfound h2 { margin: 0 0 8px; font-size: 24px; font-weight: 800; }
 
-/* ---------- official result card (keep approved layout) ---------- */
-.rcard-wrap { max-width: 860px; margin: 0 auto; }
-.rcard { background: #fff; border: 1.5px solid #222; border-radius: 3px; padding: 30px 30px 0; box-shadow: var(--shadow); }
+/* ---------- official result card (mirrors the PDF exactly) ---------- */
+.rcard-wrap { max-width: 760px; margin: 0 auto; }
+.rcard { background: #fff; border: 1.5px solid #222; border-radius: 3px; padding: 28px 28px 0; box-shadow: var(--shadow); }
 .rhead { display: flex; align-items: center; gap: 14px; }
-.rlogo-img { width: 148px; height: auto; flex-shrink: 0; }
-.runititle { font-size: 21px; font-weight: 700; }
+.rlogo-img { width: 90px; height: auto; flex-shrink: 0; }
+.runititle { font-size: 17px; font-weight: 700; }
 .rrule { height: 3px; background: #2d3290; margin: 14px 0 0; border-radius: 2px; }
-.rsub { text-align: center; font-size: 15px; margin: 0 0 4px; padding-top: 14px; }
-.rheld { text-align: center; color: #2d3290; font-weight: 700; font-size: 15px; margin-bottom: 18px; }
+.rsub { text-align: center; font-size: 16px; margin: 0 0 4px; padding-top: 14px; }
+.rheld { text-align: center; color: #2d3290; font-weight: 700; font-size: 16px; margin-bottom: 18px; }
 .rfields { }
 .frow { display: flex; gap: 18px; margin-bottom: 22px; }
-.frow > div { flex: 1; font-size: 15px; }
+.frow > div { flex: 1; font-size: 14.5px; }
 .lab { font-weight: 700; }
-.rtable { width: 100%; border-collapse: collapse; }
-.rtable td { border: 1px solid #333; padding: 10px 12px; font-size: 14.5px; }
+.rtable { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.rtable td { border: 1px solid #333; padding: 10px 12px; font-size: 14.5px; overflow: hidden; }
 .rtable .lab2 { background: #eef0fb; font-weight: 700; }
 .rtable .val.status-q { color: #2d3290; font-weight: 700; }
 .rtable .val.status-nq { color: #b3261e; font-weight: 700; }
-.rfoot { background: #2d3290; color: #fff; text-align: center; font-size: 13.5px; padding: 10px; margin: 22px -30px 0; border-radius: 0 0 2px 2px; }
+.rfoot { background: #2d3290; color: #fff; text-align: center; font-size: 14px; padding: 12px; margin: 22px -28px 0; border-radius: 0 0 2px 2px; }
 .actions { display: flex; gap: 12px; margin-top: 22px; justify-content: center; flex-wrap: wrap; }
 .stamp { display: inline-block; padding: 10px 26px; border-radius: 8px; color: #fff; font-weight: 800; font-size: 20px; letter-spacing: 1px; margin-top: 6px; }
 .stamp.pass { background: #2d3290; }
