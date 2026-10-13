@@ -179,8 +179,33 @@ def _ensure_db():
     # On Vercel there is no startup hook; create tables lazily on first request.
     global _db_ready
     if not _db_ready:
-        init_db()
+        try:
+            init_db()
+        except Exception:
+            # Concurrent cold starts can race on CREATE TABLE; the loser
+            # gets a duplicate-object error which is safe to ignore.
+            pass
         _db_ready = True
+
+
+# Vercel forwards every request to the serverless function (api/index.py),
+# so Flask may see PATH_INFO like "/api/index" or "/api/index/result/..."
+# instead of the real route. Strip that prefix so routing works the same
+# locally and on Vercel. No-op when the prefix is absent.
+_VERCEL_PREFIX = "/api/index"
+_orig_wsgi_app = app.wsgi_app
+
+
+def _strip_vercel_prefix(environ, start_response):
+    path = environ.get("PATH_INFO", "") or ""
+    if path == _VERCEL_PREFIX:
+        environ["PATH_INFO"] = "/"
+    elif path.startswith(_VERCEL_PREFIX + "/"):
+        environ["PATH_INFO"] = path[len(_VERCEL_PREFIX):]
+    return _orig_wsgi_app(environ, start_response)
+
+
+app.wsgi_app = _strip_vercel_prefix
 
 
 def get_setting(key, default=""):
