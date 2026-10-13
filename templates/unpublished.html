@@ -1,7 +1,11 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="card center">
-  <h1>Results Not Published Yet</h1>
-  <p class="muted">The PhD entry test results have not been published. Please check back later.</p>
+<div class="notfound">
+  <div class="hero-badge">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+  </div>
+  <h2>Results Not Published Yet</h2>
+  <p class="lede">The PhD entry test results have not been published. Please check back later.</p>
+  <a class="btn ghost" href="{{ url_for('index') }}">Back to Home</a>
 </div>
 {% endblock %}
