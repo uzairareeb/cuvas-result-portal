@@ -54,3 +54,32 @@ table { width: 100%; border-collapse: collapse; font-size: 14px; margin-top: 8px
 th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
 th { background: #eef5f0; color: var(--green-d); }
 footer { text-align: center; color: var(--muted); font-size: 13px; padding: 18px 0 30px; }
+
+/* ---- Official CUVAS result card ---- */
+.rcard-wrap { max-width: 860px; margin: 10px auto; }
+.rcard { background: #fff; border: 1.5px solid #111; border-radius: 4px; padding: 26px 30px 0; }
+.rhead { display: flex; align-items: center; gap: 14px; }
+.rlogo { background: #232a7a; color: #fff; padding: 8px 12px; display: flex; flex-direction: column; align-items: center; line-height: 1.1; flex-shrink: 0; }
+.rl1 { font-weight: 800; font-size: 24px; letter-spacing: 1px; }
+.rl2 { font-size: 6.5px; text-align: center; letter-spacing: .4px; margin-top: 3px; }
+.runititle { font-weight: 700; font-size: 17px; color: #111; }
+.rsub { text-align: center; font-size: 15px; margin: 16px 0 4px; border-top: 2.5px solid #0b7a3e; padding-top: 14px; }
+.rheld { text-align: center; color: #0b7a3e; font-weight: 700; font-size: 15px; margin-bottom: 18px; }
+.rbody { display: flex; gap: 18px; align-items: flex-start; }
+.rfields { flex: 1; }
+.frow { display: flex; gap: 18px; margin-bottom: 22px; }
+.frow > div { flex: 1; font-size: 15px; }
+.lab { font-weight: 700; }
+.rphoto { width: 104px; height: 114px; border: 1px solid #b5b5b5; border-radius: 3px; overflow: hidden; flex-shrink: 0; }
+.rtable { width: 100%; border-collapse: collapse; margin: 6px 0 0; font-size: 14.5px; }
+.rtable td { border: 1.2px solid #333; padding: 9px 8px; text-align: center; }
+.rtable .lab2 { background: #eef0fa; font-weight: 700; }
+.rtable .val.status-q { color: #0b7a3e; font-weight: 700; }
+.rtable .val.status-nq { color: #b3261e; font-weight: 700; }
+.rfoot { background: #232a7a; color: #fff; text-align: center; font-size: 13.5px; padding: 10px; margin: 22px -30px 0; border-radius: 0 0 2px 2px; }
+.rcard-wrap .actions { display: flex; gap: 10px; margin: 20px 0 8px; flex-wrap: wrap; }
+@media (max-width: 640px) {
+  .frow { flex-direction: column; gap: 14px; }
+  .rhead { flex-direction: column; text-align: center; }
+  .rbody { flex-direction: column-reverse; }
+}
