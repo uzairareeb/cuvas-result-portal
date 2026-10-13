@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card search-card">
+  <h1>Admin Login</h1>
+  <p class="muted">Sign in to upload result lists and manage the portal.</p>
+  <form method="post" class="cnic-form">
+    <input type="password" name="password" placeholder="Admin password" required autofocus>
+    <button type="submit">Login</button>
+  </form>
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+</div>
+{% endblock %}

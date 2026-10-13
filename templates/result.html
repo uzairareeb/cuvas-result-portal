@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card result-card">
+  <div class="card-head">
+    <div>
+      <h1>PhD Entry Test Result Card</h1>
+      <p class="muted">{% if r.test_date %}Test held on {{ r.test_date }} &middot; {% endif %}{{ short }}</p>
+    </div>
+    <div class="stamp {{ status|lower }}">{{ status }}</div>
+  </div>
+  <dl class="details">
+    <div><dt>Candidate Name</dt><dd>{{ r.name }}</dd></div>
+    <div><dt>Father Name</dt><dd>{{ r.father_name or "&mdash;" }}</dd></div>
+    <div><dt>CNIC</dt><dd>{{ r.cnic }}</dd></div>
+    <div><dt>Roll No</dt><dd>{{ r.roll_no or "&mdash;" }}</dd></div>
+    <div><dt>Discipline / Department</dt><dd>{{ r.discipline or "&mdash;" }}</dd></div>
+    <div><dt>Marks Obtained</dt><dd><strong>{{ r.obtained }} / {{ r.total }}</strong></dd></div>
+    <div><dt>Percentage</dt><dd><strong>{{ pct }}%</strong></dd></div>
+    {% if r.merit_no %}<div><dt>Merit No</dt><dd><strong>{{ r.merit_no }}</strong></dd></div>{% endif %}
+    <div><dt>Passing Criteria</dt><dd>{{ passing }}%</dd></div>
+  </dl>
+  <div class="actions">
+    <a class="btn primary" href="{{ url_for('result_pdf', cnic=r.cnic) }}">Download PDF Result Card</a>
+    <a class="btn" href="{{ url_for('index') }}">Check Another CNIC</a>
+  </div>
+  <p class="fine">This is a computer-generated result card. For verification contact the Directorate of Advanced Studies, CUVAS.</p>
+</div>
+{% endblock %}

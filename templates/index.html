@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card search-card">
+  <h1>PhD Entry Test Result</h1>
+  <p class="muted">Enter your CNIC number (with or without dashes) to view and download your Entry Test Result Card.</p>
+  <form method="post" class="cnic-form">
+    <input type="text" name="cnic" inputmode="numeric" maxlength="15"
+           placeholder="e.g. 35202-1234567-1" required autofocus>
+    <button type="submit">View Result</button>
+  </form>
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+</div>
+{% endblock %}

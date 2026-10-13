@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card center">
+  <h1>No Record Found</h1>
+  <p class="muted">No entry-test result was found for this CNIC. Please check the number and try again, or contact the Directorate of Advanced Studies.</p>
+  <a class="btn primary" href="{{ url_for('index') }}">Try Again</a>
+</div>
+{% endblock %}

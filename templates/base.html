@@ -1,1 +1,33 @@
-placeholder
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ title }}</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+<header class="topbar">
+  <div class="wrap">
+    <div class="brand">
+      <div class="logo">C</div>
+      <div>
+        <div class="uni">{{ uni }}</div>
+        <div class="sub">{{ title }}</div>
+      </div>
+    </div>
+    <nav>
+      <a href="{{ url_for('index') }}">Home</a>
+      <a href="{{ url_for('admin_login') }}">Admin</a>
+    </nav>
+  </div>
+</header>
+<main class="wrap">
+  {% with msgs = get_flashed_messages() %}
+    {% if msgs %}<div class="flash">{% for m in msgs %}<p>{{ m }}</p>{% endfor %}</div>{% endif %}
+  {% endwith %}
+  {% block content %}{% endblock %}
+</main>
+<footer><div class="wrap">Directorate of Advanced Studies &mdash; {{ uni }}</div></footer>
+</body>
+</html>

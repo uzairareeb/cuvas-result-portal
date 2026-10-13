@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="admin-bar">
+  <h1>Admin Dashboard</h1>
+  <a class="btn" href="{{ url_for('admin_logout') }}">Logout</a>
+</div>
+
+<div class="grid2">
+  <div class="card">
+    <h2>Upload Result List</h2>
+    <p class="muted">Upload a CSV or Excel file. It must have a <strong>Name</strong> column and a <strong>CNIC</strong> column.
+      Optional: Father Name, Roll No, Discipline, Test Date, Obtained, Total, Merit No.</p>
+    <form method="post" action="{{ url_for('admin_upload') }}" enctype="multipart/form-data" class="cnic-form">
+      <input type="file" name="file" accept=".csv,.xlsx,.xls" required>
+      <button type="submit">Upload</button>
+    </form>
+  </div>
+  <div class="card">
+    <h2>Settings</h2>
+    <form method="post" action="{{ url_for('admin_settings') }}">
+      <label>Passing percentage
+        <input type="number" name="passing_percent" value="{{ passing }}" min="0" max="100" step="1" required>
+      </label>
+      <label class="check"><input type="checkbox" name="published" {% if published %}checked{% endif %}>
+        Results published (students can see the portal)</label>
+      <button type="submit" class="btn primary">Save Settings</button>
+    </form>
+    <form method="post" action="{{ url_for('admin_clear') }}" style="margin-top:12px"
+          onsubmit="return confirm('Delete ALL result records? This cannot be undone.')">
+      <button type="submit" class="btn danger">Delete All Records</button>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Uploaded Results ({{ total }})</h2>
+  {% if rows %}
+  <div class="table-wrap">
+  <table>
+    <tr><th>Name</th><th>CNIC</th><th>Roll No</th><th>Discipline</th><th>Marks</th><th>Merit</th></tr>
+    {% for r in rows %}
+    <tr>
+      <td>{{ r.name }}</td><td>{{ r.cnic }}</td><td>{{ r.roll_no or "-" }}</td>
+      <td>{{ r.discipline or "-" }}</td><td>{{ r.obtained or "-" }} / {{ r.total or "-" }}</td>
+      <td>{{ r.merit_no or "-" }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% else %}
+  <p class="muted">No records yet. Upload a result list to get started.</p>
+  {% endif %}
+</div>
+{% endblock %}
