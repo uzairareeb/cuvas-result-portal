@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: cuvas-result-portal
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    envVars:
+      - key: DATABASE_URL
+        sync: false # paste your Postgres URL (e.g. Neon) in the dashboard
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: PORTAL_SECRET
+        generateValue: true
