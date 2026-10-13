@@ -6,25 +6,17 @@
       <img class="rlogo-img" src="{{ url_for('static', filename='img/cuvas-logo.png') }}" alt="CUVAS logo">
       <div class="runititle">Cholistan University of Veterinary &amp; Animal Sciences, Bahawalpur</div>
     </div>
+    <div class="rrule"></div>
     <div class="rsub">CUVAS - Admission Test (Postgraduate)</div>
     <div class="rheld">Held On:&nbsp; {{ card.held_on }}</div>
-    <div class="rbody">
-      <div class="rfields">
-        <div class="frow">
-          <div><span class="lab">Name:</span> {{ card.name }}</div>
-          <div><span class="lab">Father's Name:</span> {{ card.father_name }}</div>
-        </div>
-        <div class="frow">
-          <div><span class="lab">CNIC:</span> {{ card.cnic }}</div>
-          <div><span class="lab">Applied Degree:</span> {{ card.degree }}</div>
-        </div>
+    <div class="rfields">
+      <div class="frow">
+        <div><span class="lab">Name:</span> {{ card.name }}</div>
+        <div><span class="lab">Father's Name:</span> {{ card.father_name }}</div>
       </div>
-      <div class="rphoto" aria-hidden="true">
-        <svg viewBox="0 0 100 110" width="100%" height="100%">
-          <rect width="100" height="110" fill="#e4e4e4"/>
-          <circle cx="50" cy="42" r="19" fill="#8d8d8d"/>
-          <ellipse cx="50" cy="108" rx="34" ry="30" fill="#8d8d8d"/>
-        </svg>
+      <div class="frow">
+        <div><span class="lab">CNIC:</span> {{ card.cnic }}</div>
+        <div><span class="lab">Applied Degree:</span> {{ card.degree }}</div>
       </div>
     </div>
     <table class="rtable">
