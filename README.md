@@ -61,17 +61,23 @@ e.g. on Windows: `set ADMIN_PASSWORD=mynewpass` before running `python app.py`.
 
 ## Upload file format
 
-CSV or Excel (.xlsx). Required columns: **Name**, **CNIC**.
-Optional: Father Name, Roll No, Discipline, Test Date, Obtained, Total, Merit No.
+CSV or Excel (.xlsx). Use this column order (a ready-made template can be
+downloaded from the admin dashboard via **Download Excel Template**):
 
-Example:
+| Name | Father's Name | CNIC | Applied Degree | Held On | Total Marks | Obtained Marks |
+|---|---|---|---|---|---|---|
+| Manzar Hayat | Khizar Hayat | 36103-4695497-1 | PhD Zoology | 15-Sep-2025 | 50 | 45 |
 
-| Name | Father Name | CNIC | Roll No | Discipline | Test Date | Obtained | Total | Merit No |
-|---|---|---|---|---|---|---|---|---|
-| Ahmed Raza | Muhammad Aslam | 3520212345671 | PHD-2026-001 | Veterinary Anatomy | 12-Sep-2026 | 78 | 100 | 3 |
+- **Held On** accepts dates like `15-Sep-2025`, `15/09/2025`, `2025-09-15`.
+- **Calculated automatically** (not in the file): **Passing Marks** = 60% of Total Marks,
+  **Result Status** = Qualified / Not Qualified, **Valid Till** = 1 year from Held On.
+- Column headers are matched flexibly ("Candidate Name", "CNIC No", "Test Date" all work).
+- CNICs may be written with or without dashes — students can type them either way.
 
-Column headers are matched flexibly ("Candidate Name", "Roll Number", "Marks Obtained" all work).
-CNICs may be written with or without dashes — students can type them either way.
+## Entry points
+
+- Students: `/` — CNIC search only (no admin link is shown).
+- Admin: `/admin` — direct link only, not linked from student pages.
 
 ## Admin features
 

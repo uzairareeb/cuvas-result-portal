@@ -37,8 +37,9 @@ COLUMN_MAP = {
     "father_name": ["father name", "father_name", "father", "fathers name", "s/o d/o"],
     "cnic": ["cnic", "cnic no", "cnic number", "nic", "national id"],
     "roll_no": ["roll no", "roll_no", "roll number", "rollnumber", "seat no"],
-    "discipline": ["discipline", "department", "subject", "program", "programme", "field"],
-    "test_date": ["test date", "test_date", "date", "exam date"],
+    "discipline": ["discipline", "applied degree", "degree", "program", "programme",
+                 "department", "subject", "field"],
+    "test_date": ["test date", "test_date", "held on", "held_on", "date", "exam date"],
     "obtained": ["obtained", "obtained marks", "marks obtained", "marks", "score"],
     "total": ["total", "total marks", "max marks", "out of"],
     "merit_no": ["merit no", "merit_no", "merit number", "merit", "rank"],
@@ -140,9 +141,11 @@ def init_db():
             )
         """)
         db.execute("INSERT INTO settings(key, value) VALUES (?, ?)"
-                   " ON CONFLICT(key) DO NOTHING", ("passing_percent", "50"))
+                   " ON CONFLICT(key) DO NOTHING", ("passing_percent", "60"))
         db.execute("INSERT INTO settings(key, value) VALUES (?, ?)"
                    " ON CONFLICT(key) DO NOTHING", ("published", "1"))
+        # Migrate the old 50% default to the new 60% default (custom values untouched).
+        db.execute("UPDATE settings SET value='60' WHERE key='passing_percent' AND value='50'")
     else:
         db.execute("""
             CREATE TABLE IF NOT EXISTS candidates (
@@ -165,8 +168,10 @@ def init_db():
                 value TEXT
             )
         """)
-        db.execute("INSERT OR IGNORE INTO settings(key, value) VALUES ('passing_percent', '50')")
+        db.execute("INSERT OR IGNORE INTO settings(key, value) VALUES ('passing_percent', '60')")
         db.execute("INSERT OR IGNORE INTO settings(key, value) VALUES ('published', '1')")
+        # Migrate the old 50% default to the new 60% default (custom values untouched).
+        db.execute("UPDATE settings SET value='60' WHERE key='passing_percent' AND value='50'")
     db.commit()
     db.close()
 
@@ -230,13 +235,84 @@ def norm_cnic(raw):
     return re.sub(r"\D", "", raw or "")
 
 
-def calc_result(obtained, total, passing_percent):
+def fmt_num(x):
+    """Show whole numbers without decimals (50 not 50.0)."""
     try:
-        pct = (float(obtained) / float(total)) * 100 if float(total) else 0.0
+        f = float(x)
     except (TypeError, ValueError):
-        pct = 0.0
-    status = "PASS" if pct >= float(passing_percent) else "FAIL"
-    return round(pct, 2), status
+        return "" if x is None else str(x)
+    return str(int(f)) if f.is_integer() else str(round(f, 2))
+
+
+def calc_result(obtained, total, passing_percent):
+    """Passing is a PERCENTAGE of total marks (default 60%).
+    Returns (passing_marks_display, status)."""
+    try:
+        total_f = float(total)
+        obt_f = float(obtained)
+    except (TypeError, ValueError):
+        total_f, obt_f = 0.0, 0.0
+    try:
+        pct_f = float(passing_percent)
+    except (TypeError, ValueError):
+        pct_f = 60.0
+    passing_marks = round(total_f * pct_f / 100, 2)
+    status = "Qualified" if (total_f > 0 and obt_f >= passing_marks) else "Not Qualified"
+    return fmt_num(passing_marks), status
+
+
+_DATE_FORMATS = ("%d-%b-%Y", "%d %b %Y", "%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y",
+                 "%m/%d/%Y", "%b %d, %Y", "%d.%m.%Y", "%Y/%m/%d")
+
+
+def fmt_cnic(cnic):
+    """3610346954971 -> 36103-4695497-1 for display."""
+    d = norm_cnic(cnic)
+    if len(d) == 13:
+        return f"{d[:5]}-{d[5:12]}-{d[12]}"
+    return cnic or ""
+
+
+def parse_date(s):
+    s = (s or "").strip()
+    for f in _DATE_FORMATS:
+        try:
+            return datetime.strptime(s, f).date()
+        except ValueError:
+            continue
+    return None
+
+
+def add_one_year(d):
+    try:
+        return d.replace(year=d.year + 1)
+    except ValueError:  # Feb 29 -> Feb 28
+        return d.replace(year=d.year + 1, day=28)
+
+
+def fmt_date(d):
+    return d.strftime("%b %d, %Y") if d else ""
+
+
+def build_card(r, passing_pct):
+    """Assemble the result-card fields from a candidate record."""
+    held = parse_date(r.get("test_date"))
+    valid = add_one_year(held) if held else None
+    passing_marks, status = calc_result(r.get("obtained"), r.get("total"), passing_pct)
+    return {
+        "name": r.get("name", ""),
+        "father_name": r.get("father_name", ""),
+        "cnic": fmt_cnic(r.get("cnic", "")),
+        "cnic_raw": norm_cnic(r.get("cnic", "")),
+        "degree": r.get("discipline", ""),
+        "held_on": fmt_date(held) if held else (r.get("test_date") or ""),
+        "total": fmt_num(r.get("total")),
+        "obtained": fmt_num(r.get("obtained")),
+        "passing_marks": passing_marks,
+        "status": status,
+        "valid_till": fmt_date(valid),
+        "footer_year": str(valid.year) if valid else str(datetime.now().year),
+    }
 
 
 # ---------------- student side ----------------
@@ -262,11 +338,10 @@ def result(cnic):
     if not row:
         return render_template("notfound.html", uni=UNI_NAME, title=PORTAL_TITLE), 404
     r = dict(row)
-    passing = float(get_setting("passing_percent", "50") or 50)
-    pct, status = calc_result(r["obtained"], r["total"], passing)
+    passing_pct = float(get_setting("passing_percent", "60") or 60)
+    card = build_card(r, passing_pct)
     return render_template("result.html", uni=UNI_NAME, short=UNI_SHORT,
-                           title=PORTAL_TITLE, r=r, pct=pct, status=status,
-                           passing=passing)
+                           title=PORTAL_TITLE, card=card)
 
 
 @app.route("/result/<cnic>/pdf")
@@ -276,86 +351,158 @@ def result_pdf(cnic):
     if not row:
         return "Result not found.", 404
     r = dict(row)
-    passing = float(get_setting("passing_percent", "50") or 50)
-    pct, status = calc_result(r["obtained"], r["total"], passing)
-    buf = build_pdf(r, pct, status, passing)
-    filename = f"CUVAS_PhD_EntryTest_Result_{r['roll_no'] or cnic}.pdf"
+    passing_pct = float(get_setting("passing_percent", "60") or 60)
+    card = build_card(r, passing_pct)
+    buf = build_pdf(card)
+    filename = f"CUVAS_AdmissionTest_Result_{card['cnic_raw']}.pdf"
     return send_file(buf, mimetype="application/pdf",
                      as_attachment=True, download_name=filename)
 
 
 # ---------------- PDF generation ----------------
-def build_pdf(r, pct, status, passing):
+def build_pdf(card):
+    """Result card PDF matching the official CUVAS template:
+    logo header, Admission Test (Postgraduate), Held On, candidate fields,
+    photo placeholder, marks table with Valid Till + Result Status, blue footer.
+    """
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
-    from reportlab.lib.units import mm
     from reportlab.pdfgen import canvas
 
     buf = io.BytesIO()
     c = canvas.Canvas(buf, pagesize=A4)
     W, H = A4
-    GREEN = colors.HexColor("#0b6b3a")
-    LIGHT = colors.HexColor("#eef7f1")
-    DARK = colors.HexColor("#1a1a1a")
-    RED = colors.HexColor("#b3261e")
+    GREEN = colors.HexColor("#0b7a3e")
+    BLUE = colors.HexColor("#232a7a")
+    DARK = colors.HexColor("#111111")
+    GREY = colors.HexColor("#555555")
+    LBL_BG = colors.HexColor("#eef0fa")
+    LINE = colors.HexColor("#333333")
 
+    # Card border
+    bx, bw = 30, W - 60
+    btop, bbot = H - 52, 52
+    c.setStrokeColor(DARK)
+    c.setLineWidth(1.2)
+    c.rect(bx, bbot, bw, btop - bbot, stroke=1, fill=0)
+
+    # Header: logo box + university name
+    lx, ly, lw, lh = bx + 16, btop - 58, 96, 44
+    c.setFillColor(BLUE)
+    c.rect(lx, ly, lw, lh, stroke=0, fill=1)
+    c.setFillColor(colors.white)
+    c.setFont("Helvetica-Bold", 19)
+    c.drawCentredString(lx + lw / 2, ly + 17, "CUVAS")
+    c.setFont("Helvetica-Bold", 12.5)
+    c.setFillColor(DARK)
+    c.drawString(lx + lw + 12, ly + 16,
+                 "Cholistan University of Veterinary & Animal Sciences, Bahawalpur")
+
+    # Green rule
+    c.setStrokeColor(GREEN)
+    c.setLineWidth(2)
+    c.line(bx + 16, ly - 12, bx + bw - 16, ly - 12)
+
+    # Title block
+    cy = W / 2
+    c.setFillColor(DARK)
+    c.setFont("Helvetica", 12)
+    c.drawCentredString(cy, ly - 40, "CUVAS - Admission Test (Postgraduate)")
     c.setFillColor(GREEN)
-    c.rect(0, H - 58 * mm, W, 58 * mm, stroke=0, fill=1)
-    c.setFillColor(colors.white)
-    c.setFont("Helvetica-Bold", 15)
-    c.drawCentredString(W / 2, H - 22 * mm, UNI_NAME.upper())
-    c.setFont("Helvetica", 10)
-    c.drawCentredString(W / 2, H - 30 * mm, UNI_SHORT + "  |  Directorate of Advanced Studies")
-    c.setFont("Helvetica-Bold", 13)
-    c.drawCentredString(W / 2, H - 42 * mm, "PhD ENTRY TEST RESULT CARD")
-    if r.get("test_date"):
-        c.setFont("Helvetica", 9)
-        c.drawCentredString(W / 2, H - 50 * mm, f"Test Date: {r['test_date']}")
+    c.setFont("Helvetica-Bold", 12)
+    c.drawCentredString(cy, ly - 62, f"Held On:  {card['held_on']}")
 
-    y = H - 72 * mm
-    x0, box_w = 22 * mm, W - 44 * mm
-    rows = [
-        ("Candidate Name", r.get("name", "")),
-        ("Father Name", r.get("father_name", "")),
-        ("CNIC", r.get("cnic", "")),
-        ("Roll No", r.get("roll_no", "")),
-        ("Discipline / Department", r.get("discipline", "")),
-        ("Marks Obtained", f"{r.get('obtained','')} / {r.get('total','')}"),
-        ("Percentage", f"{pct}%"),
-        ("Passing Criteria", f"{passing}%"),
+    # Candidate fields (two columns; right side reserved for the photo box)
+    fy = ly - 108
+    photo_w = 102
+    fields_right = bx + bw - 16 - photo_w - 14
+    col1_x = bx + 16
+    col2_x = col1_x + (fields_right - col1_x) / 2
+    val_dx = 100
+    c.setFont("Helvetica-Bold", 10.5)
+    c.setFillColor(DARK)
+    c.drawString(col1_x, fy, "Name:")
+    c.drawString(col2_x, fy, "Father's Name:")
+    c.drawString(col1_x, fy - 34, "CNIC:")
+    c.drawString(col2_x, fy - 34, "Applied Degree:")
+    c.setFont("Helvetica", 10.5)
+    c.drawString(col1_x + val_dx, fy, card["name"])
+    c.drawString(col2_x + val_dx, fy, card["father_name"])
+    c.drawString(col1_x + val_dx, fy - 34, card["cnic"])
+    c.drawString(col2_x + val_dx, fy - 34, card["degree"])
+
+    # Photo placeholder (silhouette), vertically centered on the field rows
+    px, pw, ph = fields_right + 14, photo_w, 112
+    py = fy - 72
+    c.saveState()
+    clip = c.beginPath()
+    clip.roundRect(px, py, pw, ph, 2)
+    c.clipPath(clip, stroke=0, fill=0)
+    c.setFillColor(colors.HexColor("#e4e4e4"))
+    c.rect(px, py, pw, ph, stroke=0, fill=1)
+    c.setFillColor(colors.HexColor("#8d8d8d"))
+    scx = px + pw / 2
+    c.circle(scx, py + 72, 18, stroke=0, fill=1)        # head
+    c.ellipse(scx - 32, py + 2, 64, 56, stroke=0, fill=1)  # shoulders
+    c.restoreState()
+    c.setStrokeColor(colors.HexColor("#b5b5b5"))
+    c.setLineWidth(1)
+    c.roundRect(px, py, pw, ph, 2, stroke=1, fill=0)
+
+    # Marks table
+    tx, tw = bx + 16, bw - 32
+    ty, rh = fy - 108, 30
+    # Marks table: 6 columns; row 2 merges the last cell for Result Status.
+    cols = [88, 78, 108, 62, 72, 91]  # sums to 499
+    rows_spec = [
+        [("Total Marks:", card["total"], 2),
+         ("Obtained Marks:", card["obtained"], 2),
+         ("Valid Till:", card["valid_till"], 2)],
+        [("Passing Marks:", card["passing_marks"], 2),
+         ("Result Status:", card["status"], 4)],
     ]
-    if r.get("merit_no"):
-        rows.append(("Merit No", r["merit_no"]))
+    c.setLineWidth(1)
+    for row_i, cells in enumerate(rows_spec):
+        ry = ty - row_i * rh
+        x = tx
+        ci = 0
+        for lab, val, ncols in cells:
+            lab_w = cols[ci]
+            cw = sum(cols[ci:ci + ncols])
+            val_w = cw - lab_w
+            # label cell
+            c.setFillColor(LBL_BG)
+            c.rect(x, ry - rh, lab_w, rh, stroke=0, fill=1)
+            c.setFillColor(DARK)
+            c.setFont("Helvetica-Bold", 10.5)
+            c.drawCentredString(x + lab_w / 2, ry - 20, lab)
+            # value cell
+            c.setFillColor(colors.white)
+            c.rect(x + lab_w, ry - rh, val_w, rh, stroke=0, fill=1)
+            if lab == "Result Status:":
+                c.setFillColor(GREEN if val == "Qualified" else colors.HexColor("#b3261e"))
+                c.setFont("Helvetica-Bold", 11)
+            else:
+                c.setFillColor(DARK)
+                c.setFont("Helvetica", 10.5)
+            c.drawCentredString(x + lab_w + val_w / 2, ry - 20, str(val))
+            # cell borders: one rect per label cell and value cell
+            # (no internal dividers inside merged cells)
+            c.setStrokeColor(LINE)
+            c.rect(x, ry - rh, lab_w, rh, stroke=1, fill=0)
+            c.rect(x + lab_w, ry - rh, val_w, rh, stroke=1, fill=0)
+            x += cw
+            ci += ncols
 
-    c.setFillColor(LIGHT)
-    c.roundRect(x0, y - len(rows) * 10 * mm - 8 * mm, box_w,
-                len(rows) * 10 * mm + 8 * mm, 4 * mm, stroke=0, fill=1)
-    for i, (label, value) in enumerate(rows):
-        ry = y - i * 10 * mm
-        c.setFillColor(colors.HexColor("#555555"))
-        c.setFont("Helvetica", 10)
-        c.drawString(x0 + 8 * mm, ry, label)
-        c.setFillColor(DARK)
-        c.setFont("Helvetica-Bold", 10.5)
-        c.drawString(x0 + 62 * mm, ry, str(value))
-        if i < len(rows) - 1:
-            c.setStrokeColor(colors.HexColor("#d9e8de"))
-            c.line(x0 + 6 * mm, ry - 3.5 * mm, x0 + box_w - 6 * mm, ry - 3.5 * mm)
-
-    banner_y = y - len(rows) * 10 * mm - 26 * mm
-    banner_color = GREEN if status == "PASS" else RED
-    c.setFillColor(banner_color)
-    c.roundRect(x0, banner_y, box_w, 20 * mm, 4 * mm, stroke=0, fill=1)
+    # Blue footer band
+    fh = 34
+    c.setFillColor(BLUE)
+    c.rect(bx + 14, bbot + 22, bw - 28, fh, stroke=0, fill=1)
     c.setFillColor(colors.white)
-    c.setFont("Helvetica-Bold", 20)
-    c.drawCentredString(W / 2, banner_y + 7.5 * mm, status)
+    c.setFont("Helvetica", 10)
+    c.drawCentredString(cy, bbot + 34,
+                        f"\u00a9 {card['footer_year']}   Cholistan University of Veterinary & Animal Sciences, Bahawalpur")
 
-    c.setFillColor(colors.HexColor("#777777"))
-    c.setFont("Helvetica", 8)
-    c.drawCentredString(W / 2, 22 * mm,
-                        "This is a computer-generated result card. Verify with the Directorate of Advanced Studies, CUVAS.")
-    c.drawCentredString(W / 2, 16 * mm,
-                        f"Generated on {datetime.now().strftime('%d-%b-%Y %I:%M %p')}")
     c.showPage()
     c.save()
     buf.seek(0)
@@ -516,6 +663,39 @@ def admin_upload():
     flash(f"Upload complete: {imported} records imported"
           + (f", {skipped} rows skipped (bad CNIC or missing name)." if skipped else "."))
     return redirect(url_for("admin_dashboard"))
+
+
+@app.route("/admin/template")
+@admin_required
+def admin_template():
+    """Download a sample Excel file with the exact columns the upload expects."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Results"
+    headers = ["Name", "Father's Name", "CNIC", "Applied Degree",
+               "Held On", "Total Marks", "Obtained Marks"]
+    ws.append(headers)
+    for cell in ws[1]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="0B6B3A")
+        cell.alignment = Alignment(horizontal="center")
+    ws.append(["Manzar Hayat", "Khizar Hayat", "36103-4695497-1",
+               "PhD Zoology", "15-Sep-2025", 50, 45])
+    ws.append(["Ayesha Khan", "Muhammad Khan", "35202-1234567-1",
+               "PhD Biochemistry", "15-Sep-2025", 100, 72])
+    widths = [22, 22, 20, 22, 16, 14, 16]
+    for i, w in enumerate(widths, start=1):
+        ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = w
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return send_file(
+        buf, as_attachment=True,
+        download_name="cuvas_result_upload_template.xlsx",
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
 if __name__ == "__main__":
