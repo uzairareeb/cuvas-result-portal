@@ -138,9 +138,9 @@ label.f-label { display: block; font-size: 13.5px; font-weight: 600; margin-bott
 .hint a { color: var(--primary); font-weight: 600; }
 
 /* ---------- admin: table ---------- */
-.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; }
-table { width: 100%; border-collapse: collapse; font-size: 14px; background: #fff; }
-th { background: #f2f4fb; color: #344054; text-align: left; font-weight: 700; font-size: 12.5px; text-transform: uppercase; letter-spacing: .5px; }
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; max-height: 70vh; overflow-y: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; background: #fff; min-width: 960px; }
+th { background: #f2f4fb; color: #344054; text-align: left; font-weight: 700; font-size: 12.5px; text-transform: uppercase; letter-spacing: .5px; position: sticky; top: 0; z-index: 2; box-shadow: 0 1px 0 var(--line); }
 th, td { padding: 12px 14px; border-bottom: 1px solid var(--line); white-space: nowrap; }
 tr:last-child td { border-bottom: none; }
 tbody tr:hover { background: #fafbff; }
@@ -245,7 +245,7 @@ tbody tr:hover { background: #fafbff; }
 .admin-top-title { font-size: 19px; font-weight: 800; letter-spacing: -.2px; }
 .hamburger { display: none; background: none; border: 1px solid var(--line); border-radius: 8px; padding: 8px; cursor: pointer; color: var(--ink); }
 .hamburger svg { width: 20px; height: 20px; display: block; }
-.admin-content { padding: 26px; max-width: 1200px; width: 100%; margin: 0 auto; }
+.admin-content { padding: 28px 32px; max-width: 1400px; width: 100%; margin: 0 auto; }
 .side-overlay { display: none; }
 
 /* ---------- admin: filters / pagination / misc ---------- */
