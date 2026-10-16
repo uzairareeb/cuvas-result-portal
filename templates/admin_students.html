@@ -1,0 +1,101 @@
+{% extends "admin_base.html" %}
+{% block title %}Student Records{% endblock %}
+{% block page_title %}Student Records{% endblock %}
+{% block content %}
+<div class="card section">
+  <form method="get" action="{{ url_for('admin_students') }}" class="filters">
+    <div class="filter-search">
+      <span class="input-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span>
+      <input type="text" name="q" value="{{ q }}" placeholder="Search name, CNIC, degree...">
+    </div>
+    <select name="program" class="no-icon">
+      <option value="all" {{ 'selected' if program == 'all' else '' }}>All Programs</option>
+      <option value="PhD" {{ 'selected' if program == 'PhD' else '' }}>PhD</option>
+      <option value="MPhil" {{ 'selected' if program == 'MPhil' else '' }}>MPhil</option>
+    </select>
+    <select name="status" class="no-icon">
+      <option value="all" {{ 'selected' if status == 'all' else '' }}>All Statuses</option>
+      <option value="Qualified" {{ 'selected' if status == 'Qualified' else '' }}>Qualified</option>
+      <option value="Not Qualified" {{ 'selected' if status == 'Not Qualified' else '' }}>Not Qualified</option>
+    </select>
+    <button type="submit" class="btn primary sm">Filter</button>
+    {% if q or program != 'all' or status != 'all' %}
+    <a href="{{ url_for('admin_students') }}" class="btn ghost sm">Clear</a>
+    {% endif %}
+  </form>
+
+  <p class="hint" style="margin:0 0 12px">Showing {{ rows|length }} of {{ total }} students</p>
+
+  {% if rows %}
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Name</th><th>CNIC</th><th>Program</th><th>Applied Degree</th><th>Marks</th><th>Status</th><th>Held On</th><th style="text-align:right">Actions</th></tr></thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td><strong>{{ r.name }}</strong><br><span class="hint">{{ r.father_name }}</span></td>
+          <td>{{ r.cnic }}</td>
+          <td><span class="pill prog">{{ r.program }}</span></td>
+          <td>{{ r.discipline }}</td>
+          <td>{{ r.obtained }} / {{ r.total }}</td>
+          <td>
+            {% if r.status == 'Qualified' %}
+            <span class="pill q"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Qualified</span>
+            {% else %}
+            <span class="pill nq"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>Not Qualified</span>
+            {% endif %}
+          </td>
+          <td>{{ r.test_date }}</td>
+          <td style="text-align:right;white-space:nowrap">
+            <a class="btn ghost sm" href="{{ url_for('admin_edit_student', cid=r.id) }}">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
+              Edit
+            </a>
+            <form method="post" action="{{ url_for('admin_delete_student', cid=r.id) }}" style="display:inline"
+                  onsubmit="return confirm('Delete record of {{ r.name }}? This cannot be undone.')">
+              <button type="submit" class="btn danger sm">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+              </button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if pages > 1 %}
+  <div class="pagination">
+    {% if page > 1 %}
+    <a class="btn ghost sm" href="{{ url_for('admin_students', q=q, program=program, status=status, page=page-1) }}">&larr; Prev</a>
+    {% endif %}
+    {% for p in range(1, pages + 1) %}
+      {% if p == page %}
+      <span class="page on">{{ p }}</span>
+      {% elif p == 1 or p == pages or (p >= page - 2 and p <= page + 2) %}
+      <a class="page" href="{{ url_for('admin_students', q=q, program=program, status=status, page=p) }}">{{ p }}</a>
+      {% elif p == page - 3 or p == page + 3 %}
+      <span class="page dots">&hellip;</span>
+      {% endif %}
+    {% endfor %}
+    {% if page < pages %}
+    <a class="btn ghost sm" href="{{ url_for('admin_students', q=q, program=program, status=status, page=page+1) }}">Next &rarr;</a>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <form method="post" action="{{ url_for('admin_clear') }}" style="margin-top:20px"
+        onsubmit="return confirm('Delete ALL result records? This cannot be undone.')">
+    <button type="submit" class="btn danger sm">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+      Delete All Records
+    </button>
+  </form>
+  {% else %}
+  <div class="empty">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    <p>No students match your filters. <a href="{{ url_for('admin_students') }}">Clear filters</a> or upload results.</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,64 @@
+{% extends "admin_base.html" %}
+{% block title %}Edit Student{% endblock %}
+{% block page_title %}Edit Student{% endblock %}
+{% block content %}
+<div class="card section" style="max-width:720px">
+  <div class="section-head">
+    <span class="section-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg></span>
+    <h3>Edit Record &mdash; {{ student.name }}</h3>
+  </div>
+  <form method="post">
+    <div class="grid2">
+      <div>
+        <label class="f-label" for="name">Name</label>
+        <input type="text" class="no-icon" id="name" name="name" value="{{ student.name }}" required>
+      </div>
+      <div>
+        <label class="f-label" for="father_name">Father's Name</label>
+        <input type="text" class="no-icon" id="father_name" name="father_name" value="{{ student.father_name or '' }}">
+      </div>
+    </div>
+    <div class="grid2">
+      <div>
+        <label class="f-label" for="cnic">CNIC</label>
+        <input type="text" class="no-icon" id="cnic" name="cnic" value="{{ student.cnic }}" required>
+      </div>
+      <div>
+        <label class="f-label" for="program">Program</label>
+        <select class="no-icon" id="program" name="program">
+          <option value="PhD" {{ 'selected' if student.program == 'PhD' else '' }}>PhD ({{ phd_pct if phd_pct is defined else '60' }}% to pass)</option>
+          <option value="MPhil" {{ 'selected' if student.program == 'MPhil' else '' }}>MPhil ({{ mphil_pct if mphil_pct is defined else '50' }}% to pass)</option>
+        </select>
+      </div>
+    </div>
+    <div class="grid2">
+      <div>
+        <label class="f-label" for="discipline">Applied Degree</label>
+        <input type="text" class="no-icon" id="discipline" name="discipline" value="{{ student.discipline or '' }}">
+      </div>
+      <div>
+        <label class="f-label" for="test_date">Held On</label>
+        <input type="text" class="no-icon" id="test_date" name="test_date" value="{{ student.test_date or '' }}" placeholder="15-Sep-2025">
+      </div>
+    </div>
+    <div class="grid2">
+      <div>
+        <label class="f-label" for="total">Total Marks</label>
+        <input type="number" class="no-icon" id="total" name="total" step="any" min="0" value="{{ student.total or '' }}" required>
+      </div>
+      <div>
+        <label class="f-label" for="obtained">Obtained Marks</label>
+        <input type="number" class="no-icon" id="obtained" name="obtained" step="any" min="0" value="{{ student.obtained or '' }}" required>
+      </div>
+    </div>
+    <p class="hint">Current status: <strong>{{ student.status }}</strong> &mdash; status recalculates automatically after saving.</p>
+    <div class="row">
+      <button type="submit" class="btn primary">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        Save Changes
+      </button>
+      <a class="btn ghost" href="{{ url_for('admin_students') }}">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

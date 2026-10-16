@@ -1,0 +1,65 @@
+{% extends "admin_base.html" %}
+{% block title %}Upload Results{% endblock %}
+{% block page_title %}Upload Results{% endblock %}
+{% block content %}
+<div class="card section">
+  <div class="section-head">
+    <span class="section-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></span>
+    <h3>Upload Result File</h3>
+  </div>
+  <form method="post" action="{{ url_for('admin_upload') }}" enctype="multipart/form-data">
+    <label class="dropzone" id="dz">
+      <input type="file" name="file" id="fileInput" accept=".csv,.xlsx,.xls" required hidden>
+      <span class="dz-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></span>
+      <span class="dz-text"><strong>Choose a file</strong> or drag it here</span>
+      <span class="dz-file" id="dzFile"></span>
+      <span class="dz-hint">CSV or Excel (.xlsx) &mdash; columns in order: Name, Father's Name, CNIC, <strong>Program (PhD/MPhil)</strong>, Applied Degree, Held On, Total Marks, Obtained Marks. Re-uploading the same CNIC updates that record.</span>
+    </label>
+    <div class="row">
+      <button type="submit" class="btn primary">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        Upload Results
+      </button>
+      <a class="btn ghost" href="{{ url_for('admin_template') }}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Download Template
+      </a>
+    </div>
+  </form>
+  <script>
+    (function () {
+      var inp = document.getElementById('fileInput'), lbl = document.getElementById('dzFile');
+      inp.addEventListener('change', function () { if (inp.files.length) lbl.textContent = inp.files[0].name; });
+    })();
+  </script>
+</div>
+
+<div class="card section">
+  <div class="section-head">
+    <span class="section-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg></span>
+    <h3>Result Settings</h3>
+  </div>
+  <form method="post" action="{{ url_for('admin_settings') }}">
+    <div class="grid2" style="margin-bottom:14px">
+      <div>
+        <label class="f-label" for="phd_pct">PhD passing percentage</label>
+        <input type="number" class="no-icon" id="phd_pct" name="phd_passing_percent" min="1" max="100" step="any" value="{{ phd_pct }}" required>
+        <p class="field-hint" style="margin:6px 0 0">e.g. 60% &mdash; on 50 marks, 30 to pass; on 100 marks, 60 to pass.</p>
+      </div>
+      <div>
+        <label class="f-label" for="mphil_pct">MPhil passing percentage</label>
+        <input type="number" class="no-icon" id="mphil_pct" name="mphil_passing_percent" min="1" max="100" step="any" value="{{ mphil_pct }}" required>
+        <p class="field-hint" style="margin:6px 0 0">e.g. 50% &mdash; on 50 marks, 25 to pass; on 100 marks, 50 to pass.</p>
+      </div>
+    </div>
+    <label class="check-row">
+      <input type="checkbox" name="published" value="1" {% if published %}checked{% endif %}>
+      <span><strong>Publish results</strong><br><span class="hint">When off, students see a "results not published" notice instead of their cards.</span></span>
+    </label>
+    <button type="submit" class="btn primary">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+      Save Settings
+    </button>
+  </form>
+</div>
+{% endblock %}
