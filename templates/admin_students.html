@@ -13,19 +13,31 @@
       <option value="PhD" {{ 'selected' if program == 'PhD' else '' }}>PhD</option>
       <option value="MPhil" {{ 'selected' if program == 'MPhil' else '' }}>MPhil</option>
     </select>
+    <select name="degree" class="no-icon">
+      <option value="all" {{ 'selected' if degree == 'all' else '' }}>All Degrees</option>
+      {% for d in degrees %}
+      <option value="{{ d }}" {{ 'selected' if degree == d else '' }}>{{ d }}</option>
+      {% endfor %}
+    </select>
     <select name="status" class="no-icon">
       <option value="all" {{ 'selected' if status == 'all' else '' }}>All Statuses</option>
       <option value="Qualified" {{ 'selected' if status == 'Qualified' else '' }}>Qualified</option>
       <option value="Not Qualified" {{ 'selected' if status == 'Not Qualified' else '' }}>Not Qualified</option>
     </select>
     <button type="submit" class="btn primary sm">Filter</button>
-    {% if q or program != 'all' or status != 'all' %}
+    {% if q or program != 'all' or degree != 'all' or status != 'all' %}
     <a href="{{ url_for('admin_students') }}" class="btn ghost sm">Clear</a>
     {% endif %}
-    <a href="{{ url_for('admin_export', q=q, program=program, status=status) }}" class="btn ghost sm" style="margin-left:auto">
+    <span style="margin-left:auto;display:inline-flex;gap:8px">
+    <a href="{{ url_for('admin_export', q=q, program=program, degree=degree, status=status) }}" class="btn ghost sm">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       Export Excel
     </a>
+    <a href="{{ url_for('admin_export_pdf', q=q, program=program, degree=degree, status=status) }}" class="btn ghost sm">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+      Download PDF
+    </a>
+    </span>
   </form>
 
   <p class="hint" style="margin:0 0 12px">Showing {{ rows|length }} of {{ total }} students</p>
@@ -71,19 +83,19 @@
   {% if pages > 1 %}
   <div class="pagination">
     {% if page > 1 %}
-    <a class="btn ghost sm" href="{{ url_for('admin_students', q=q, program=program, status=status, page=page-1) }}">&larr; Prev</a>
+    <a class="btn ghost sm" href="{{ url_for('admin_students', q=q, program=program, degree=degree, status=status, page=page-1) }}">&larr; Prev</a>
     {% endif %}
     {% for p in range(1, pages + 1) %}
       {% if p == page %}
       <span class="page on">{{ p }}</span>
       {% elif p == 1 or p == pages or (p >= page - 2 and p <= page + 2) %}
-      <a class="page" href="{{ url_for('admin_students', q=q, program=program, status=status, page=p) }}">{{ p }}</a>
+      <a class="page" href="{{ url_for('admin_students', q=q, program=program, degree=degree, status=status, page=p) }}">{{ p }}</a>
       {% elif p == page - 3 or p == page + 3 %}
       <span class="page dots">&hellip;</span>
       {% endif %}
     {% endfor %}
     {% if page < pages %}
-    <a class="btn ghost sm" href="{{ url_for('admin_students', q=q, program=program, status=status, page=page+1) }}">Next &rarr;</a>
+    <a class="btn ghost sm" href="{{ url_for('admin_students', q=q, program=program, degree=degree, status=status, page=page+1) }}">Next &rarr;</a>
     {% endif %}
   </div>
   {% endif %}
