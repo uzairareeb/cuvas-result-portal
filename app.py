@@ -643,7 +643,7 @@ def admin_settings():
     return redirect(url_for("admin_upload_page"))
 
 
-def _filtered_students(q, program, status):
+def _filtered_students(q, program, degree, status):
     """Students matching the records-page filters, with program + status computed."""
     db = get_db()
     clauses, params = [], []
@@ -654,6 +654,9 @@ def _filtered_students(q, program, status):
     if program in ("PhD", "MPhil"):
         clauses.append("program=?")
         params.append(program)
+    if degree and degree != "all":
+        clauses.append("discipline=?")
+        params.append(degree)
     sql = "SELECT * FROM candidates"
     if clauses:
         sql += " WHERE " + " AND ".join(clauses)
@@ -668,16 +671,26 @@ def _filtered_students(q, program, status):
     return rows
 
 
+def _degree_options():
+    """Distinct applied-degree values for the degree filter."""
+    db = get_db()
+    rows = db.fetchall("SELECT DISTINCT discipline FROM candidates "
+                       "WHERE discipline IS NOT NULL AND TRIM(discipline) != '' "
+                       "ORDER BY discipline")
+    return [r["discipline"] for r in rows]
+
+
 @app.route("/admin/students")
 @admin_required
 def admin_students():
     q = request.args.get("q", "").strip()
     program = request.args.get("program", "all")
+    degree = request.args.get("degree", "all")
     status = request.args.get("status", "all")
     page = request.args.get("page", 1, type=int) or 1
     per_page = 15
 
-    rows = _filtered_students(q, program, status)
+    rows = _filtered_students(q, program, degree, status)
 
     total = len(rows)
     pages = max(1, (total + per_page - 1) // per_page)
@@ -685,7 +698,8 @@ def admin_students():
     page_rows = rows[(page - 1) * per_page:page * per_page]
     return render_template("admin_students.html", uni=UNI_NAME, title=PORTAL_TITLE,
                            active="students", rows=page_rows, page=page, pages=pages,
-                           total=total, q=q, program=program, status=status,
+                           total=total, q=q, program=program, degree=degree,
+                           degrees=_degree_options(), status=status,
                            per_page=per_page)
 
 
@@ -698,8 +712,9 @@ def admin_export():
 
     q = request.args.get("q", "").strip()
     program = request.args.get("program", "all")
+    degree = request.args.get("degree", "all")
     status = request.args.get("status", "all")
-    rows = _filtered_students(q, program, status)
+    rows = _filtered_students(q, program, degree, status)
 
     wb = Workbook()
     ws = wb.active
@@ -732,6 +747,142 @@ def admin_export():
         buf, as_attachment=True,
         download_name="cuvas_students_export.xlsx",
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+@app.route("/admin/export-pdf")
+@admin_required
+def admin_export_pdf():
+    """Professional PDF list of the currently filtered student records."""
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib.units import mm
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib.enums import TA_CENTER, TA_LEFT
+    from reportlab.platypus import (SimpleDocTemplate, Table, TableStyle,
+                                    Paragraph, Spacer, Image as RLImage)
+
+    q = request.args.get("q", "").strip()
+    program = request.args.get("program", "all")
+    degree = request.args.get("degree", "all")
+    status = request.args.get("status", "all")
+    rows = _filtered_students(q, program, degree, status)
+
+    INDIGO = colors.HexColor("#2d3290")
+    DARK = colors.HexColor("#1a1f36")
+    MUTED = colors.HexColor("#667085")
+    OK = colors.HexColor("#12805c")
+    BAD = colors.HexColor("#b3261e")
+
+    buf = io.BytesIO()
+    page = landscape(A4)
+    doc = SimpleDocTemplate(buf, pagesize=page, leftMargin=14 * mm,
+                            rightMargin=14 * mm, topMargin=14 * mm,
+                            bottomMargin=14 * mm, title="CUVAS Student Result List")
+    avail = page[0] - 28 * mm
+
+    title_style = ParagraphStyle("t", fontName="Helvetica-Bold", fontSize=15,
+                                 textColor=DARK, alignment=TA_LEFT, leading=18)
+    sub_style = ParagraphStyle("s", fontName="Helvetica", fontSize=10,
+                               textColor=MUTED, alignment=TA_LEFT, leading=13)
+    filt_style = ParagraphStyle("f", fontName="Helvetica", fontSize=9,
+                                textColor=DARK, alignment=TA_LEFT, leading=12)
+    cell_style = ParagraphStyle("c", fontName="Helvetica", fontSize=8,
+                                textColor=DARK, leading=10)
+    head_style = ParagraphStyle("h", fontName="Helvetica-Bold", fontSize=8.5,
+                                textColor=colors.white, leading=11)
+
+    story = []
+    # Header: logo + university name
+    logo_path = os.path.join(BASE_DIR, "static", "img", "cuvas-logo.png")
+    if os.path.exists(logo_path):
+        logo = RLImage(logo_path, width=30 * mm, height=30 * mm * 148 / 270)
+        head_tbl = Table([[logo, Paragraph(
+            "Cholistan University of Veterinary &amp; Animal Sciences, Bahawalpur<br/>"
+            "<font size=11 color=\"#2d3290\"><b>Entry Test Result Portal — Student Result List</b></font>",
+            title_style)]], colWidths=[32 * mm, avail - 32 * mm])
+        head_tbl.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                                      ("LEFTPADDING", (1, 0), (1, 0), 6)]))
+        story.append(head_tbl)
+    else:
+        story.append(Paragraph(
+            "Cholistan University of Veterinary &amp; Animal Sciences, Bahawalpur",
+            title_style))
+        story.append(Paragraph("Entry Test Result Portal — Student Result List",
+                               sub_style))
+    story.append(Spacer(1, 4 * mm))
+
+    # Filter summary
+    filt_bits = []
+    if program != "all":
+        filt_bits.append(f"Program: <b>{program}</b>")
+    if degree != "all":
+        filt_bits.append(f"Degree: <b>{degree}</b>")
+    if status != "all":
+        filt_bits.append(f"Status: <b>{status}</b>")
+    if q:
+        filt_bits.append(f"Search: <b>{q}</b>")
+    filt_line = " &nbsp;|&nbsp; ".join(filt_bits) if filt_bits else "All records"
+    story.append(Paragraph(
+        f"{filt_line} &nbsp;&nbsp;•&nbsp;&nbsp; Total: <b>{len(rows)}</b> student(s)"
+        f" &nbsp;&nbsp;•&nbsp;&nbsp; Generated: {datetime.now().strftime('%d-%b-%Y %H:%M')}",
+        filt_style))
+    story.append(Spacer(1, 4 * mm))
+
+    # Data table
+    headers = ["#", "Name", "Father's Name", "CNIC", "Program", "Applied Degree",
+               "Total", "Obtained", "Passing", "Status", "Held On"]
+    col_w = [10 * mm, 36 * mm, 32 * mm, 30 * mm, 18 * mm, 42 * mm, 15 * mm,
+             17 * mm, 15 * mm, 22 * mm, 28 * mm]
+    data = [[Paragraph(h, head_style) for h in headers]]
+    for i, r in enumerate(rows, start=1):
+        held = parse_date(r.get("test_date"))
+        pm, _ = calc_result(r.get("obtained"), r.get("total"),
+                            program_passing_pct(r["program"]))
+        st = r.get("status", "")
+        st_color = "#12805c" if st == "Qualified" else "#b3261e"
+        data.append([
+            Paragraph(str(i), cell_style),
+            Paragraph(str(r.get("name") or ""), cell_style),
+            Paragraph(str(r.get("father_name") or ""), cell_style),
+            Paragraph(str(r.get("cnic") or ""), cell_style),
+            Paragraph(str(r.get("program") or ""), cell_style),
+            Paragraph(str(r.get("discipline") or ""), cell_style),
+            Paragraph(str(r.get("total") or ""), cell_style),
+            Paragraph(str(r.get("obtained") or ""), cell_style),
+            Paragraph(str(pm), cell_style),
+            Paragraph(f'<font color="{st_color}"><b>{st}</b></font>', cell_style),
+            Paragraph(fmt_date(held) if held else str(r.get("test_date") or ""),
+                      cell_style),
+        ])
+    tbl = Table(data, colWidths=col_w, repeatRows=1)
+    style_cmds = [
+        ("BACKGROUND", (0, 0), (-1, 0), INDIGO),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#d0d5e8")),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f4f6fc")]),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+    ]
+    tbl.setStyle(TableStyle(style_cmds))
+    story.append(tbl)
+
+    def _footer(canv, _doc):
+        canv.saveState()
+        canv.setFont("Helvetica", 8)
+        canv.setFillColor(MUTED)
+        canv.drawString(14 * mm, 10 * mm,
+                        "Cholistan University of Veterinary & Animal Sciences, Bahawalpur")
+        canv.drawRightString(page[0] - 14 * mm, 10 * mm, f"Page {_doc.page}")
+        canv.restoreState()
+
+    doc.build(story, onFirstPage=_footer, onLaterPages=_footer)
+    buf.seek(0)
+    return send_file(buf, as_attachment=True,
+                     download_name="cuvas_students_list.pdf",
+                     mimetype="application/pdf")
 
 
 @app.route("/admin/students/<int:cid>/edit", methods=["GET", "POST"])
