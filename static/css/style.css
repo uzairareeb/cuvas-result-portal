@@ -191,6 +191,26 @@ tbody tr:hover { background: #fafbff; }
 .stamp.pass { background: #2d3290; }
 .stamp.fail { background: #b3261e; }
 
+/* ---------- student portal: loading overlay ---------- */
+.loader-overlay { position: fixed; inset: 0; z-index: 200; display: flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,.85); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  opacity: 0; visibility: hidden; transition: opacity .35s ease, visibility .35s; padding: 20px; }
+.loader-overlay.show { opacity: 1; visibility: visible; }
+.loader-box { background: #fff; border: 1px solid var(--line); border-radius: 20px; box-shadow: var(--shadow);
+  padding: 38px 44px; text-align: center; max-width: 420px; width: 100%; }
+.loader-logo { height: 46px; margin-bottom: 20px; }
+.loader-ring { width: 74px; height: 74px; margin: 0 auto 22px; position: relative; }
+.loader-ring::before, .loader-ring::after { content: ""; position: absolute; inset: 0; border-radius: 50%; }
+.loader-ring::before { border: 6px solid #e6e9f7; }
+.loader-ring::after { border: 6px solid transparent; border-top-color: var(--primary); animation: lspin 1s linear infinite; }
+@keyframes lspin { to { transform: rotate(360deg); } }
+.loader-msg { font-size: 16px; font-weight: 600; color: #1a1f36; min-height: 26px; margin: 0 0 18px; transition: opacity .22s ease; }
+.loader-track { height: 8px; background: #eef0fb; border-radius: 99px; overflow: hidden; margin-bottom: 10px; }
+.loader-bar { height: 100%; width: 0; background: var(--primary); border-radius: 99px; }
+.loader-pct { font-size: 13px; color: var(--muted); margin: 0 0 18px; }
+.loader-cancel { background: none; border: none; color: var(--muted); font-size: 13.5px; cursor: pointer; text-decoration: underline; padding: 4px 8px; }
+.loader-cancel:hover { color: var(--primary); }
+
 /* ---------- student portal: announcement banners ---------- */
 .notices { display: flex; flex-direction: column; gap: 10px; margin-bottom: 22px; text-align: left; }
 .notice {
