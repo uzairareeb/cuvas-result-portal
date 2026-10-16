@@ -366,8 +366,17 @@ def index():
             error = "Please enter a valid 13-digit CNIC number."
         else:
             return redirect(url_for("result", cnic=cnic))
+    # Per-program announcement banners (set in admin → Upload Results).
+    notices = []
+    for prog, msg_key, date_key in (("PhD", "phd_notice", "phd_notice_date"),
+                                    ("MPhil", "mphil_notice", "mphil_notice_date")):
+        msg = get_setting(msg_key, "").strip()
+        if msg:
+            d = parse_date(get_setting(date_key, "").strip())
+            notices.append({"program": prog, "message": msg,
+                            "date": fmt_date(d) if d else ""})
     return render_template("index.html", uni=UNI_NAME, short=UNI_SHORT,
-                           title=PORTAL_TITLE, error=error)
+                           title=PORTAL_TITLE, error=error, notices=notices)
 
 
 @app.route("/result/<cnic>")
@@ -599,7 +608,11 @@ def admin_upload_page():
                            active="upload",
                            phd_pct=get_setting("phd_passing_percent", "60"),
                            mphil_pct=get_setting("mphil_passing_percent", "50"),
-                           published=get_setting("published", "1") == "1")
+                           published=get_setting("published", "1") == "1",
+                           phd_notice=get_setting("phd_notice", ""),
+                           phd_notice_date=get_setting("phd_notice_date", ""),
+                           mphil_notice=get_setting("mphil_notice", ""),
+                           mphil_notice_date=get_setting("mphil_notice_date", ""))
 
 
 def _clean_pct(v):
@@ -622,20 +635,17 @@ def admin_settings():
     set_setting("phd_passing_percent", _clean_pct(phd))
     set_setting("mphil_passing_percent", _clean_pct(mphil))
     set_setting("published", "1" if request.form.get("published") else "0")
+    set_setting("phd_notice", request.form.get("phd_notice", "").strip())
+    set_setting("phd_notice_date", request.form.get("phd_notice_date", "").strip())
+    set_setting("mphil_notice", request.form.get("mphil_notice", "").strip())
+    set_setting("mphil_notice_date", request.form.get("mphil_notice_date", "").strip())
     flash("Settings saved.")
     return redirect(url_for("admin_upload_page"))
 
 
-@app.route("/admin/students")
-@admin_required
-def admin_students():
+def _filtered_students(q, program, status):
+    """Students matching the records-page filters, with program + status computed."""
     db = get_db()
-    q = request.args.get("q", "").strip()
-    program = request.args.get("program", "all")
-    status = request.args.get("status", "all")
-    page = request.args.get("page", 1, type=int) or 1
-    per_page = 15
-
     clauses, params = [], []
     if q:
         like = f"%{q}%"
@@ -655,6 +665,19 @@ def admin_students():
                                      program_passing_pct(r["program"]))
     if status in ("Qualified", "Not Qualified"):
         rows = [r for r in rows if r["status"] == status]
+    return rows
+
+
+@app.route("/admin/students")
+@admin_required
+def admin_students():
+    q = request.args.get("q", "").strip()
+    program = request.args.get("program", "all")
+    status = request.args.get("status", "all")
+    page = request.args.get("page", 1, type=int) or 1
+    per_page = 15
+
+    rows = _filtered_students(q, program, status)
 
     total = len(rows)
     pages = max(1, (total + per_page - 1) // per_page)
@@ -664,6 +687,51 @@ def admin_students():
                            active="students", rows=page_rows, page=page, pages=pages,
                            total=total, q=q, program=program, status=status,
                            per_page=per_page)
+
+
+@app.route("/admin/export")
+@admin_required
+def admin_export():
+    """One-click Excel export of the currently filtered student records."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+
+    q = request.args.get("q", "").strip()
+    program = request.args.get("program", "all")
+    status = request.args.get("status", "all")
+    rows = _filtered_students(q, program, status)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Students"
+    headers = ["Name", "Father's Name", "CNIC", "Program", "Applied Degree",
+               "Held On", "Total Marks", "Obtained Marks", "Passing Marks",
+               "Result Status", "Valid Till"]
+    ws.append(headers)
+    for cell in ws[1]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="2D3290")
+        cell.alignment = Alignment(horizontal="center")
+    for r in rows:
+        held = parse_date(r.get("test_date"))
+        valid = add_one_year(held) if held else None
+        pm, _ = calc_result(r.get("obtained"), r.get("total"),
+                            program_passing_pct(r["program"]))
+        ws.append([r.get("name"), r.get("father_name"), r.get("cnic"),
+                   r.get("program"), r.get("discipline"),
+                   fmt_date(held) if held else (r.get("test_date") or ""),
+                   r.get("total"), r.get("obtained"), pm, r.get("status"),
+                   fmt_date(valid) if valid else ""])
+    widths = [22, 22, 20, 12, 24, 16, 14, 16, 14, 16, 16]
+    for i, w in enumerate(widths, start=1):
+        ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = w
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return send_file(
+        buf, as_attachment=True,
+        download_name="cuvas_students_export.xlsx",
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
 @app.route("/admin/students/<int:cid>/edit", methods=["GET", "POST"])
