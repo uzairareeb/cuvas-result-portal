@@ -468,6 +468,18 @@ def build_pdf(card):
             c.rect(x + lab_w, ry - rh, val_w, rh, stroke=1, fill=0)
             x += lab_w + val_w
 
+    # Disclaimer note (italic, centered) between table and footer
+    from reportlab.platypus import Paragraph
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib.enums import TA_CENTER
+    note_style = ParagraphStyle("note", fontName="Helvetica-Oblique", fontSize=10.5,
+                                leading=14.5, alignment=TA_CENTER, textColor=DARK)
+    note = Paragraph("NOTE: This is online generated result card. Errors and Omissions "
+                     "are expected. If you have any query please contact at "
+                     "das@cuvas.edu.pk.", note_style)
+    _nw, nh = note.wrap(tw - 20, 120)
+    note.drawOn(c, tx + 10, 140 - nh)
+
     # Solid footer band
     fh = 36
     band(bx, bbot, bw, fh)
