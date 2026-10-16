@@ -36,8 +36,9 @@ COLUMN_MAP = {
     "name": ["name", "candidate name", "candidate", "student name", "applicant name"],
     "father_name": ["father name", "father's name", "father_name", "father", "fathers name", "s/o d/o"],
     "cnic": ["cnic", "cnic no", "cnic number", "nic", "national id"],
+    "program": ["program", "programme", "degree program", "program level", "level"],
     "roll_no": ["roll no", "roll_no", "roll number", "rollnumber", "seat no"],
-    "discipline": ["discipline", "applied degree", "degree", "program", "programme",
+    "discipline": ["discipline", "applied degree", "degree",
                  "department", "subject", "field"],
     "test_date": ["test date", "test_date", "held on", "held_on", "date", "exam date"],
     "obtained": ["obtained", "obtained marks", "marks obtained", "marks", "score"],
@@ -47,7 +48,7 @@ COLUMN_MAP = {
 
 UNI_NAME = "Cholistan University of Veterinary and Animal Sciences"
 UNI_SHORT = "CUVAS, Bahawalpur"
-PORTAL_TITLE = "PhD Entry Test Result Portal"
+PORTAL_TITLE = "Entry Test Result Portal"
 
 
 # ---------------- database (SQLite locally, Postgres on Vercel) ----------------
@@ -134,6 +135,7 @@ def init_db():
                 uploaded_at TEXT
             )
         """)
+        db.execute("ALTER TABLE candidates ADD COLUMN IF NOT EXISTS program TEXT DEFAULT 'PhD'")
         db.execute("""
             CREATE TABLE IF NOT EXISTS settings (
                 key TEXT PRIMARY KEY,
@@ -141,11 +143,17 @@ def init_db():
             )
         """)
         db.execute("INSERT INTO settings(key, value) VALUES (?, ?)"
-                   " ON CONFLICT(key) DO NOTHING", ("passing_percent", "60"))
-        db.execute("INSERT INTO settings(key, value) VALUES (?, ?)"
                    " ON CONFLICT(key) DO NOTHING", ("published", "1"))
         # Migrate the old 50% default to the new 60% default (custom values untouched).
         db.execute("UPDATE settings SET value='60' WHERE key='passing_percent' AND value='50'")
+        # Program-aware passing percentages (PhD 60%, MPhil 50%).
+        old = db.fetchone("SELECT value FROM settings WHERE key='passing_percent'")
+        phd_default = old["value"] if old else "60"
+        db.execute("INSERT INTO settings(key, value) VALUES (?, ?)"
+                   " ON CONFLICT(key) DO NOTHING", ("phd_passing_percent", phd_default))
+        db.execute("INSERT INTO settings(key, value) VALUES (?, ?)"
+                   " ON CONFLICT(key) DO NOTHING", ("mphil_passing_percent", "50"))
+        db.execute("DELETE FROM settings WHERE key='passing_percent'")
     else:
         db.execute("""
             CREATE TABLE IF NOT EXISTS candidates (
@@ -168,10 +176,18 @@ def init_db():
                 value TEXT
             )
         """)
-        db.execute("INSERT OR IGNORE INTO settings(key, value) VALUES ('passing_percent', '60')")
+        cols = [c[1] for c in db.fetchall("PRAGMA table_info(candidates)")]
+        if "program" not in cols:
+            db.execute("ALTER TABLE candidates ADD COLUMN program TEXT DEFAULT 'PhD'")
         db.execute("INSERT OR IGNORE INTO settings(key, value) VALUES ('published', '1')")
+        # Program-aware passing percentages (PhD 60%, MPhil 50%).
+        old = db.fetchone("SELECT value FROM settings WHERE key='passing_percent'")
+        phd_default = old["value"] if old else "60"
+        db.execute("INSERT OR IGNORE INTO settings(key, value) VALUES ('phd_passing_percent', ?)", (phd_default,))
+        db.execute("INSERT OR IGNORE INTO settings(key, value) VALUES ('mphil_passing_percent', '50')")
+        db.execute("DELETE FROM settings WHERE key='passing_percent'")
         # Migrate the old 50% default to the new 60% default (custom values untouched).
-        db.execute("UPDATE settings SET value='60' WHERE key='passing_percent' AND value='50'")
+        db.execute("UPDATE settings SET value='60' WHERE key='phd_passing_percent' AND value='50'")
     db.commit()
     db.close()
 
@@ -261,6 +277,27 @@ def calc_result(obtained, total, passing_percent):
     return fmt_num(passing_marks), status
 
 
+def norm_program(val):
+    """Canonical program name: 'MPhil' or 'PhD' (default)."""
+    v = str(val or "").strip().lower().replace(".", "")
+    if v.startswith("mphil") or v.startswith("m phil"):
+        return "MPhil"
+    return "PhD"
+
+
+def program_passing_pct(program):
+    """Passing percentage for a program: PhD 60%, MPhil 50% (both adjustable)."""
+    if (program or "PhD") == "MPhil":
+        try:
+            return float(get_setting("mphil_passing_percent", "50") or 50)
+        except (TypeError, ValueError):
+            return 50.0
+    try:
+        return float(get_setting("phd_passing_percent", "60") or 60)
+    except (TypeError, ValueError):
+        return 60.0
+
+
 _DATE_FORMATS = ("%d-%b-%Y", "%d %b %Y", "%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y",
                  "%m/%d/%Y", "%b %d, %Y", "%d.%m.%Y", "%Y/%m/%d",
                  "%Y-%m-%d %H:%M:%S", "%d-%b-%Y %H:%M:%S", "%d/%m/%Y %H:%M:%S")
@@ -295,11 +332,12 @@ def fmt_date(d):
     return d.strftime("%b %d, %Y") if d else ""
 
 
-def build_card(r, passing_pct):
+def build_card(r):
     """Assemble the result-card fields from a candidate record."""
     held = parse_date(r.get("test_date"))
     valid = add_one_year(held) if held else None
-    passing_marks, status = calc_result(r.get("obtained"), r.get("total"), passing_pct)
+    passing_marks, status = calc_result(r.get("obtained"), r.get("total"),
+                                        program_passing_pct(r.get("program")))
     return {
         "name": r.get("name", ""),
         "father_name": r.get("father_name", ""),
@@ -339,8 +377,7 @@ def result(cnic):
     if not row:
         return render_template("notfound.html", uni=UNI_NAME, title=PORTAL_TITLE), 404
     r = dict(row)
-    passing_pct = float(get_setting("passing_percent", "60") or 60)
-    card = build_card(r, passing_pct)
+    card = build_card(r)
     return render_template("result.html", uni=UNI_NAME, short=UNI_SHORT,
                            title=PORTAL_TITLE, card=card)
 
@@ -352,8 +389,7 @@ def result_pdf(cnic):
     if not row:
         return "Result not found.", 404
     r = dict(row)
-    passing_pct = float(get_setting("passing_percent", "60") or 60)
-    card = build_card(r, passing_pct)
+    card = build_card(r)
     buf = build_pdf(card)
     filename = f"CUVAS_AdmissionTest_Result_{card['cnic_raw']}.pdf"
     return send_file(buf, mimetype="application/pdf",
@@ -525,30 +561,164 @@ def admin_logout():
 @app.route("/admin/dashboard")
 @admin_required
 def admin_dashboard():
-    rows = get_db().fetchall("SELECT * FROM candidates ORDER BY name")
-    rows = [dict(r) for r in rows]
-    passing = get_setting("passing_percent", "60")
-    try:
-        passing_pct = float(passing)
-    except (TypeError, ValueError):
-        passing_pct = 60.0
-    published = get_setting("published", "1") == "1"
+    db = get_db()
+    rows = [dict(r) for r in db.fetchall("SELECT * FROM candidates")]
+    total = len(rows)
+    phd = mphil = qcount = 0
     for r in rows:
-        _, r["status"] = calc_result(r.get("obtained"), r.get("total"), passing_pct)
-    qcount = sum(1 for r in rows if r["status"] == "Qualified")
-    return render_template("admin.html", uni=UNI_NAME, title=PORTAL_TITLE,
-                           rows=rows, passing=passing, published=published,
-                           total=len(rows), qcount=qcount,
-                           nqcount=len(rows) - qcount)
+        prog = r.get("program") or "PhD"
+        r["program"] = prog
+        if prog == "MPhil":
+            mphil += 1
+        else:
+            phd += 1
+        _, r["status"] = calc_result(r.get("obtained"), r.get("total"),
+                                     program_passing_pct(prog))
+        if r["status"] == "Qualified":
+            qcount += 1
+    breakdown = []
+    for prog in ("PhD", "MPhil"):
+        pr = [r for r in rows if r["program"] == prog]
+        pq = sum(1 for r in pr if r["status"] == "Qualified")
+        breakdown.append({"program": prog, "total": len(pr), "qualified": pq,
+                          "rate": round(pq / len(pr) * 100, 1) if pr else 0})
+    recent = sorted(rows, key=lambda r: r.get("uploaded_at") or "", reverse=True)[:8]
+    return render_template("admin_dashboard.html", uni=UNI_NAME, title=PORTAL_TITLE,
+                           active="dashboard", total=total, phd=phd, mphil=mphil,
+                           qcount=qcount, nqcount=total - qcount,
+                           published=get_setting("published", "1") == "1",
+                           phd_pct=get_setting("phd_passing_percent", "60"),
+                           mphil_pct=get_setting("mphil_passing_percent", "50"),
+                           breakdown=breakdown, recent=recent)
+
+
+@app.route("/admin/upload")
+@admin_required
+def admin_upload_page():
+    return render_template("admin_upload.html", uni=UNI_NAME, title=PORTAL_TITLE,
+                           active="upload",
+                           phd_pct=get_setting("phd_passing_percent", "60"),
+                           mphil_pct=get_setting("mphil_passing_percent", "50"),
+                           published=get_setting("published", "1") == "1")
+
+
+def _clean_pct(v):
+    s = str(v)
+    return s.rstrip("0").rstrip(".") if "." in s else s
 
 
 @app.route("/admin/settings", methods=["POST"])
 @admin_required
 def admin_settings():
-    set_setting("passing_percent", request.form.get("passing_percent", "50"))
+    try:
+        phd = float(request.form.get("phd_passing_percent", "60"))
+        mphil = float(request.form.get("mphil_passing_percent", "50"))
+    except (TypeError, ValueError):
+        flash("Passing percentages must be numbers.")
+        return redirect(url_for("admin_upload_page"))
+    if not (1 <= phd <= 100 and 1 <= mphil <= 100):
+        flash("Passing percentages must be between 1 and 100.")
+        return redirect(url_for("admin_upload_page"))
+    set_setting("phd_passing_percent", _clean_pct(phd))
+    set_setting("mphil_passing_percent", _clean_pct(mphil))
     set_setting("published", "1" if request.form.get("published") else "0")
     flash("Settings saved.")
-    return redirect(url_for("admin_dashboard"))
+    return redirect(url_for("admin_upload_page"))
+
+
+@app.route("/admin/students")
+@admin_required
+def admin_students():
+    db = get_db()
+    q = request.args.get("q", "").strip()
+    program = request.args.get("program", "all")
+    status = request.args.get("status", "all")
+    page = request.args.get("page", 1, type=int) or 1
+    per_page = 15
+
+    clauses, params = [], []
+    if q:
+        like = f"%{q}%"
+        clauses.append("(name LIKE ? OR cnic LIKE ? OR discipline LIKE ? OR father_name LIKE ?)")
+        params += [like] * 4
+    if program in ("PhD", "MPhil"):
+        clauses.append("program=?")
+        params.append(program)
+    sql = "SELECT * FROM candidates"
+    if clauses:
+        sql += " WHERE " + " AND ".join(clauses)
+    sql += " ORDER BY name"
+    rows = [dict(r) for r in db.fetchall(sql, params)]
+    for r in rows:
+        r["program"] = r.get("program") or "PhD"
+        _, r["status"] = calc_result(r.get("obtained"), r.get("total"),
+                                     program_passing_pct(r["program"]))
+    if status in ("Qualified", "Not Qualified"):
+        rows = [r for r in rows if r["status"] == status]
+
+    total = len(rows)
+    pages = max(1, (total + per_page - 1) // per_page)
+    page = min(max(page, 1), pages)
+    page_rows = rows[(page - 1) * per_page:page * per_page]
+    return render_template("admin_students.html", uni=UNI_NAME, title=PORTAL_TITLE,
+                           active="students", rows=page_rows, page=page, pages=pages,
+                           total=total, q=q, program=program, status=status,
+                           per_page=per_page)
+
+
+@app.route("/admin/students/<int:cid>/edit", methods=["GET", "POST"])
+@admin_required
+def admin_edit_student(cid):
+    db = get_db()
+    row = db.fetchone("SELECT * FROM candidates WHERE id=?", (cid,))
+    if not row:
+        flash("Student not found.")
+        return redirect(url_for("admin_students"))
+    if request.method == "POST":
+        name = request.form.get("name", "").strip()
+        father = request.form.get("father_name", "").strip()
+        cnic = norm_cnic(request.form.get("cnic", ""))
+        program = norm_program(request.form.get("program"))
+        discipline = request.form.get("discipline", "").strip()
+        test_date = request.form.get("test_date", "").strip()
+        try:
+            total = float(request.form.get("total") or 0)
+            obtained = float(request.form.get("obtained") or 0)
+        except ValueError:
+            flash("Marks must be numbers.")
+            return redirect(url_for("admin_edit_student", cid=cid))
+        if not name or len(cnic) != 13:
+            flash("Name and a valid 13-digit CNIC are required.")
+            return redirect(url_for("admin_edit_student", cid=cid))
+        dup = db.fetchone("SELECT id FROM candidates WHERE cnic=? AND id<>?", (cnic, cid))
+        if dup:
+            flash("Another student already uses this CNIC.")
+            return redirect(url_for("admin_edit_student", cid=cid))
+        db.execute("UPDATE candidates SET name=?, father_name=?, cnic=?, program=?,"
+                   " discipline=?, test_date=?, obtained=?, total=? WHERE id=?",
+                   (name, father, cnic, program, discipline, test_date,
+                    obtained or None, total or None, cid))
+        db.commit()
+        flash("Student record updated.")
+        return redirect(url_for("admin_students"))
+    r = dict(row)
+    r["program"] = r.get("program") or "PhD"
+    _, r["status"] = calc_result(r.get("obtained"), r.get("total"),
+                                 program_passing_pct(r["program"]))
+    return render_template("admin_edit.html", uni=UNI_NAME, title=PORTAL_TITLE,
+                           active="students", student=r,
+                           phd_pct=get_setting("phd_passing_percent", "60"),
+                           mphil_pct=get_setting("mphil_passing_percent", "50"))
+
+
+@app.route("/admin/students/<int:cid>/delete", methods=["POST"])
+@admin_required
+def admin_delete_student(cid):
+    db = get_db()
+    db.execute("DELETE FROM candidates WHERE id=?", (cid,))
+    db.commit()
+    flash("Student record deleted.")
+    return redirect(url_for("admin_students"))
 
 
 @app.route("/admin/clear", methods=["POST"])
@@ -558,7 +728,7 @@ def admin_clear():
     db.execute("DELETE FROM candidates")
     db.commit()
     flash("All result records deleted.")
-    return redirect(url_for("admin_dashboard"))
+    return redirect(url_for("admin_students"))
 
 
 def header_key(header):
@@ -594,20 +764,20 @@ def admin_upload():
     file = request.files.get("file")
     if not file or not file.filename:
         flash("Please choose a file to upload.")
-        return redirect(url_for("admin_dashboard"))
+        return redirect(url_for("admin_upload_page"))
     ext = file.filename.rsplit(".", 1)[-1].lower()
     if ext not in ALLOWED_EXT:
         flash("Only CSV or Excel (.xlsx/.xls) files are allowed.")
-        return redirect(url_for("admin_dashboard"))
+        return redirect(url_for("admin_upload_page"))
 
     try:
         raw_rows = read_upload(file)
     except Exception as e:
         flash(f"Could not read file: {e}")
-        return redirect(url_for("admin_dashboard"))
+        return redirect(url_for("admin_upload_page"))
     if not raw_rows:
         flash("No data rows found in the file.")
-        return redirect(url_for("admin_dashboard"))
+        return redirect(url_for("admin_upload_page"))
 
     first = raw_rows[0]
     mapping = {}
@@ -618,12 +788,12 @@ def admin_upload():
 
     if "name" not in mapping.values() or "cnic" not in mapping.values():
         flash("File must contain at least a Name column and a CNIC column.")
-        return redirect(url_for("admin_dashboard"))
+        return redirect(url_for("admin_upload_page"))
 
     db = get_db()
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     imported, skipped = 0, 0
-    cols = ("name", "father_name", "cnic", "roll_no", "discipline",
+    cols = ("name", "father_name", "cnic", "program", "roll_no", "discipline",
             "test_date", "obtained", "total", "merit_no", "uploaded_at")
     placeholders = ", ".join(["?"] * len(cols))
     if USE_PG:
@@ -643,12 +813,15 @@ def admin_upload():
                     val = val.strftime("%d-%b-%Y")
                 elif isinstance(val, date):
                     val = val.strftime("%d-%b-%Y")
+                if field == "program":
+                    val = norm_program(val)
                 rec[field] = str(val).strip() if val is not None else ""
         cnic = norm_cnic(rec.get("cnic", ""))
         if not rec.get("name") or len(cnic) != 13:
             skipped += 1
             continue
-        values = (rec.get("name"), rec.get("father_name"), cnic, rec.get("roll_no"),
+        values = (rec.get("name"), rec.get("father_name"), cnic,
+                  rec.get("program") or "PhD", rec.get("roll_no"),
                   rec.get("discipline"), rec.get("test_date"),
                   rec.get("obtained") or None, rec.get("total") or None,
                   rec.get("merit_no"), now)
@@ -660,7 +833,7 @@ def admin_upload():
     db.commit()
     flash(f"Upload complete: {imported} records imported"
           + (f", {skipped} rows skipped (bad CNIC or missing name)." if skipped else "."))
-    return redirect(url_for("admin_dashboard"))
+    return redirect(url_for("admin_upload_page"))
 
 
 @app.route("/admin/template")
@@ -673,18 +846,18 @@ def admin_template():
     wb = Workbook()
     ws = wb.active
     ws.title = "Results"
-    headers = ["Name", "Father's Name", "CNIC", "Applied Degree",
+    headers = ["Name", "Father's Name", "CNIC", "Program", "Applied Degree",
                "Held On", "Total Marks", "Obtained Marks"]
     ws.append(headers)
     for cell in ws[1]:
         cell.font = Font(bold=True, color="FFFFFF")
         cell.fill = PatternFill("solid", fgColor="2D3290")
         cell.alignment = Alignment(horizontal="center")
-    ws.append(["Manzar Hayat", "Khizar Hayat", "36103-4695497-1",
+    ws.append(["Manzar Hayat", "Khizar Hayat", "36103-4695497-1", "PhD",
                "PhD Zoology", "15-Sep-2025", 50, 45])
-    ws.append(["Ayesha Khan", "Muhammad Khan", "35202-1234567-1",
-               "PhD Biochemistry", "15-Sep-2025", 100, 72])
-    widths = [22, 22, 20, 22, 16, 14, 16]
+    ws.append(["Ayesha Khan", "Muhammad Khan", "35202-1234567-1", "MPhil",
+               "MPhil Biochemistry", "15-Sep-2025", 100, 72])
+    widths = [22, 22, 20, 12, 22, 16, 14, 16]
     for i, w in enumerate(widths, start=1):
         ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = w
     buf = io.BytesIO()
