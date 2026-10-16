@@ -19,7 +19,7 @@
   </div>
   <h1>Entry Test Result</h1>
   <p class="lede">Enter your CNIC number below to view your official result card and download it as a PDF.</p>
-  <form class="search-card" method="post" action="{{ url_for('index') }}">
+  <form class="search-card" id="cnicForm" method="post" action="{{ url_for('index') }}">
     {% if error %}<p class="form-error">{{ error }}</p>{% endif %}
     <label class="f-label" for="cnic">CNIC Number</label>
     <div class="input-group">
@@ -38,4 +38,73 @@
     <div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>Official PDF card</div>
   </div>
 </div>
+
+<div class="loader-overlay" id="loaderOverlay" aria-hidden="true">
+  <div class="loader-box">
+    <img class="loader-logo" src="{{ url_for('static', filename='img/cuvas-logo.png') }}" alt="CUVAS">
+    <div class="loader-ring"></div>
+    <p class="loader-msg" id="loaderMsg">Verifying your CNIC&hellip;</p>
+    <div class="loader-track"><div class="loader-bar" id="loaderBar"></div></div>
+    <p class="loader-pct" id="loaderPct">0%</p>
+    <button type="button" class="loader-cancel" id="loaderCancel">Cancel</button>
+  </div>
+</div>
+<script>
+(function () {
+  var form = document.getElementById('cnicForm');
+  var overlay = document.getElementById('loaderOverlay');
+  var msg = document.getElementById('loaderMsg');
+  var bar = document.getElementById('loaderBar');
+  var pct = document.getElementById('loaderPct');
+  var cancelBtn = document.getElementById('loaderCancel');
+  var btn = form.querySelector('button[type="submit"]');
+  var DURATION = 12000;
+  var STAGES = [
+    'Verifying your CNIC&hellip;',
+    'Connecting to the result database&hellip;',
+    'Fetching your result&hellip;',
+    'Preparing your result card&hellip;'
+  ];
+  var timers = [], raf = null, running = false;
+
+  function setMsg(html) {
+    msg.style.opacity = 0;
+    setTimeout(function () { msg.innerHTML = html; msg.style.opacity = 1; }, 220);
+  }
+  function stop() {
+    timers.forEach(clearTimeout); timers = [];
+    if (raf) cancelAnimationFrame(raf); raf = null;
+    running = false;
+    overlay.classList.remove('show');
+    overlay.setAttribute('aria-hidden', 'true');
+    btn.disabled = false;
+  }
+  form.addEventListener('submit', function (e) {
+    if (running) { e.preventDefault(); return; }
+    var digits = (document.getElementById('cnic').value || '').replace(/\D/g, '');
+    if (digits.length !== 13) return; /* invalid CNIC: let the server show the error at once */
+    e.preventDefault();
+    running = true;
+    btn.disabled = true;
+    bar.style.width = '0%'; pct.textContent = '0%';
+    msg.innerHTML = STAGES[0]; msg.style.opacity = 1;
+    overlay.classList.add('show');
+    overlay.setAttribute('aria-hidden', 'false');
+    STAGES.forEach(function (s, i) {
+      timers.push(setTimeout(function () { if (i > 0) setMsg(s); }, i * (DURATION / STAGES.length)));
+    });
+    var start = null;
+    function tick(ts) {
+      if (!start) start = ts;
+      var p = Math.min((ts - start) / DURATION, 1);
+      bar.style.width = (p * 100).toFixed(1) + '%';
+      pct.textContent = Math.round(p * 100) + '%';
+      if (p < 1 && running) raf = requestAnimationFrame(tick);
+    }
+    raf = requestAnimationFrame(tick);
+    timers.push(setTimeout(function () { form.submit(); }, DURATION));
+  });
+  cancelBtn.addEventListener('click', stop);
+})();
+</script>
 {% endblock %}
