@@ -22,6 +22,10 @@
     {% if q or program != 'all' or status != 'all' %}
     <a href="{{ url_for('admin_students') }}" class="btn ghost sm">Clear</a>
     {% endif %}
+    <a href="{{ url_for('admin_export', q=q, program=program, status=status) }}" class="btn ghost sm" style="margin-left:auto">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      Export Excel
+    </a>
   </form>
 
   <p class="hint" style="margin:0 0 12px">Showing {{ rows|length }} of {{ total }} students</p>

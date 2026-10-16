@@ -34,12 +34,12 @@
   </script>
 </div>
 
-<div class="card section">
-  <div class="section-head">
-    <span class="section-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg></span>
-    <h3>Result Settings</h3>
-  </div>
-  <form method="post" action="{{ url_for('admin_settings') }}">
+<form method="post" action="{{ url_for('admin_settings') }}">
+  <div class="card section">
+    <div class="section-head">
+      <span class="section-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg></span>
+      <h3>Result Settings</h3>
+    </div>
     <div class="grid2" style="margin-bottom:14px">
       <div>
         <label class="f-label" for="phd_pct">PhD passing percentage</label>
@@ -56,10 +56,35 @@
       <input type="checkbox" name="published" value="1" {% if published %}checked{% endif %}>
       <span><strong>Publish results</strong><br><span class="hint">When off, students see a "results not published" notice instead of their cards.</span></span>
     </label>
-    <button type="submit" class="btn primary">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-      Save Settings
-    </button>
-  </form>
-</div>
+  </div>
+
+  <div class="card section">
+    <div class="section-head">
+      <span class="section-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l18-7-7 18-2.5-7.5L3 11z"/></svg></span>
+      <h3>Result Announcements</h3>
+    </div>
+    <p class="hint" style="margin-top:0">Write a separate notice for each program. It appears as a banner on the student portal above the CNIC search — leave a message empty to hide its banner.</p>
+    <div class="announce-grid">
+      <div class="announce-box">
+        <div class="announce-head"><span class="pill prog">PhD</span></div>
+        <label class="f-label" for="phd_notice">Notice message</label>
+        <input type="text" class="no-icon" id="phd_notice" name="phd_notice" value="{{ phd_notice }}" placeholder="e.g. PhD result will be announced on">
+        <label class="f-label" for="phd_notice_date" style="margin-top:10px">Date</label>
+        <input type="date" class="no-icon" id="phd_notice_date" name="phd_notice_date" value="{{ phd_notice_date }}">
+      </div>
+      <div class="announce-box">
+        <div class="announce-head"><span class="pill prog">MPhil</span></div>
+        <label class="f-label" for="mphil_notice">Notice message</label>
+        <input type="text" class="no-icon" id="mphil_notice" name="mphil_notice" value="{{ mphil_notice }}" placeholder="e.g. MPhil result will be announced on">
+        <label class="f-label" for="mphil_notice_date" style="margin-top:10px">Date</label>
+        <input type="date" class="no-icon" id="mphil_notice_date" name="mphil_notice_date" value="{{ mphil_notice_date }}">
+      </div>
+    </div>
+  </div>
+
+  <button type="submit" class="btn primary">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+    Save Settings &amp; Announcements
+  </button>
+</form>
 {% endblock %}
