@@ -1,19 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="hero">
-  {% if notices %}
-  <div class="notices">
-    {% for n in notices %}
-    <div class="notice">
-      <span class="notice-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l18-7-7 18-2.5-7.5L3 11z"/></svg></span>
-      <div class="notice-body">
-        <span class="pill prog">{{ n.program }}</span>
-        <span class="notice-msg">{{ n.message }}{% if n.date %} <strong>{{ n.date }}</strong>{% endif %}</span>
-      </div>
-    </div>
-    {% endfor %}
-  </div>
-  {% endif %}
   <div class="hero-badge">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
   </div>

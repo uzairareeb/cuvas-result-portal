@@ -59,34 +59,6 @@
         <p class="field-hint" style="margin:6px 0 0">e.g. 50% &mdash; on 50 marks, 25 to pass; on 100 marks, 50 to pass.</p>
       </div>
     </div>
-    <label class="check-row">
-      <input type="checkbox" name="published" value="1" {% if published %}checked{% endif %}>
-      <span><strong>Publish results</strong><br><span class="hint">When off, students see a "results not published" notice instead of their cards.</span></span>
-    </label>
-  </div>
-
-  <div class="card section">
-    <div class="section-head">
-      <span class="section-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l18-7-7 18-2.5-7.5L3 11z"/></svg></span>
-      <h3>Result Announcements</h3>
-    </div>
-    <p class="hint" style="margin-top:0">Write a separate notice for each program. It appears as a banner on the student portal above the CNIC search — leave a message empty to hide its banner.</p>
-    <div class="announce-grid">
-      <div class="announce-box">
-        <div class="announce-head"><span class="pill prog">PhD</span></div>
-        <label class="f-label" for="phd_notice">Notice message</label>
-        <input type="text" class="no-icon" id="phd_notice" name="phd_notice" value="{{ phd_notice }}" placeholder="e.g. PhD result will be announced on">
-        <label class="f-label" for="phd_notice_date" style="margin-top:10px">Date</label>
-        <input type="date" class="no-icon" id="phd_notice_date" name="phd_notice_date" value="{{ phd_notice_date }}">
-      </div>
-      <div class="announce-box">
-        <div class="announce-head"><span class="pill prog">MPhil</span></div>
-        <label class="f-label" for="mphil_notice">Notice message</label>
-        <input type="text" class="no-icon" id="mphil_notice" name="mphil_notice" value="{{ mphil_notice }}" placeholder="e.g. MPhil result will be announced on">
-        <label class="f-label" for="mphil_notice_date" style="margin-top:10px">Date</label>
-        <input type="date" class="no-icon" id="mphil_notice_date" name="mphil_notice_date" value="{{ mphil_notice_date }}">
-      </div>
-    </div>
   </div>
 
   <div class="card section">
@@ -94,7 +66,11 @@
       <span class="section-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></span>
       <h3>Announcement Mode — “Result Coming Soon” + Countdown</h3>
     </div>
-    <p class="hint" style="margin-top:0">While results are <strong>unpublished</strong>, turn this on to show students an announcement with a live countdown (Days : Hours : Minutes : Seconds) instead of the plain “not published” page. As soon as you tick <strong>Publish results</strong> above and save, the normal result search comes back automatically. Everything is shown in English.</p>
+    <p class="hint" style="margin-top:0">While results are <strong>unpublished</strong>, turn the announcement on to show students the announcement with a live countdown (Days : Hours : Minutes : Seconds) instead of the plain “not published” page. As soon as you tick <strong>Publish results</strong> below and save, the announcement disappears and the normal result search comes back automatically. Everything is shown in English.</p>
+    <label class="check-row">
+      <input type="checkbox" name="published" value="1" {% if published %}checked{% endif %}>
+      <span><strong>Publish results</strong><br><span class="hint">When off, students see the announcement / “results not published” page instead of their cards.</span></span>
+    </label>
     <label class="check-row">
       <input type="checkbox" name="announce_enabled" value="1" {% if announce_enabled %}checked{% endif %}>
       <span><strong>Enable announcement mode</strong><br><span class="hint">Only takes effect while “Publish results” is off.</span></span>
@@ -111,7 +87,7 @@
 
   <button type="submit" class="btn primary">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-    Save Settings &amp; Announcements
+    Save Settings
   </button>
 </form>
 

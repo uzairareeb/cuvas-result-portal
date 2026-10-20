@@ -703,19 +703,10 @@ def index():
         else:
             sid = request.form.get("session", type=int)
             return redirect(url_for("result", cnic=cnic, s=sid))
-    # Per-program announcement banners (set in admin → Upload Results).
-    notices = []
-    for prog, msg_key, date_key in (("PhD", "phd_notice", "phd_notice_date"),
-                                    ("MPhil", "mphil_notice", "mphil_notice_date")):
-        msg = get_setting(msg_key, "").strip()
-        if msg:
-            d = parse_date(get_setting(date_key, "").strip())
-            notices.append({"program": prog, "message": msg,
-                            "date": fmt_date(d) if d else ""})
     sess = get_sessions()
     act = active_session()
     return render_template("index.html", uni=UNI_NAME, short=UNI_SHORT,
-                           title=PORTAL_TITLE, error=error, notices=notices,
+                           title=PORTAL_TITLE, error=error,
                            sessions=sess, active_id=act["id"] if act else None)
 
 
@@ -1092,10 +1083,6 @@ def admin_upload_page():
                            phd_pct=get_setting("phd_passing_percent", "60"),
                            mphil_pct=get_setting("mphil_passing_percent", "50"),
                            published=get_setting("published", "1") == "1",
-                           phd_notice=get_setting("phd_notice", ""),
-                           phd_notice_date=get_setting("phd_notice_date", ""),
-                           mphil_notice=get_setting("mphil_notice", ""),
-                           mphil_notice_date=get_setting("mphil_notice_date", ""),
                            announce_enabled=get_setting("announce_enabled", "0") == "1",
                            announce_title=get_setting("announce_title", ""),
                            announce_message=get_setting("announce_message", ""),
@@ -1123,10 +1110,6 @@ def admin_settings():
     set_setting("phd_passing_percent", _clean_pct(phd))
     set_setting("mphil_passing_percent", _clean_pct(mphil))
     set_setting("published", "1" if request.form.get("published") else "0")
-    set_setting("phd_notice", request.form.get("phd_notice", "").strip())
-    set_setting("phd_notice_date", request.form.get("phd_notice_date", "").strip())
-    set_setting("mphil_notice", request.form.get("mphil_notice", "").strip())
-    set_setting("mphil_notice_date", request.form.get("mphil_notice_date", "").strip())
     set_setting("announce_enabled", "1" if request.form.get("announce_enabled") else "0")
     set_setting("announce_title", request.form.get("announce_title", "").strip())
     set_setting("announce_message", request.form.get("announce_message", "").strip())

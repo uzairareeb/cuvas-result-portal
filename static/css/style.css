@@ -311,25 +311,6 @@ tbody tr:hover { background: #fafbff; }
   #confettiCanvas { display: none; }
 }
 
-/* ---------- student portal: announcement banners ---------- */
-.notices { display: flex; flex-direction: column; gap: 10px; margin-bottom: 22px; text-align: left; }
-.notice {
-  display: flex; gap: 12px; align-items: flex-start;
-  background: #fffbeb; border: 1px solid #f5d67b; border-left: 4px solid #d9a821;
-  border-radius: 12px; padding: 14px 16px; box-shadow: var(--shadow-sm);
-}
-.notice-icon { width: 36px; height: 36px; border-radius: 10px; background: #fef3c7; color: #b45309;
-  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
-.notice-icon svg { width: 19px; height: 19px; }
-.notice-body { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 14.5px; }
-.notice-msg strong { color: var(--primary-dark); }
-
-/* ---------- admin: announcement boxes ---------- */
-.announce-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-.announce-box { border: 1.5px solid var(--line); border-radius: 12px; padding: 18px; background: #fbfbfe; }
-.announce-head { margin-bottom: 12px; }
-@media (max-width: 720px) { .announce-grid { grid-template-columns: 1fr; } }
-
 /* ---------- site footer ---------- */
 .site-foot { text-align: center; color: var(--muted); font-size: 12.5px; padding: 26px 0 34px; }
 
