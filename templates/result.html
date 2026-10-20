@@ -54,10 +54,12 @@
 (function () {
   /* Toast hide wiring always runs, even for reduced-motion users. */
   var toast = document.getElementById('celebrateToast');
-  document.getElementById('celebrateClose').addEventListener('click', function () {
+  function hideToast() {
     toast.classList.add('ct-hide');
-  });
-  setTimeout(function () { toast.classList.add('ct-hide'); }, 6000);
+    setTimeout(function () { toast.style.display = 'none'; }, 480);
+  }
+  document.getElementById('celebrateClose').addEventListener('click', hideToast);
+  setTimeout(hideToast, 6000);
 
   /* Skip only the confetti for users who prefer reduced motion. */
   if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
