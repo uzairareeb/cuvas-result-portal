@@ -42,7 +42,8 @@ COLUMN_MAP = {
     "program": ["program", "programme", "degree program", "program level", "level"],
     "roll_no": ["roll no", "roll_no", "roll number", "rollnumber", "seat no"],
     "discipline": ["discipline", "applied degree", "degree",
-                 "department", "subject", "field"],
+                 "department", "subject", "field", "degree/discipline",
+                 "discipline/degree", "degree / discipline"],
     "test_date": ["test date", "test_date", "held on", "held_on", "date", "exam date"],
     "obtained": ["obtained", "obtained marks", "marks obtained", "marks", "score"],
     "total": ["total", "total marks", "max marks", "out of"],
@@ -245,6 +246,79 @@ def init_db():
             ip TEXT NOT NULL
         )
     """)
+    # ---- test sessions: sessions table + candidates.session_id ----
+    db.execute(f"""
+        CREATE TABLE IF NOT EXISTS sessions (
+            id {idcol},
+            name TEXT NOT NULL UNIQUE,
+            created_at TEXT,
+            is_active INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+    if USE_PG:
+        db.execute("ALTER TABLE candidates ADD COLUMN IF NOT EXISTS session_id INTEGER")
+        db.execute("ALTER TABLE candidates DROP CONSTRAINT IF EXISTS candidates_cnic_key")
+        db.execute("CREATE UNIQUE INDEX IF NOT EXISTS candidates_cnic_session_uidx"
+                   " ON candidates(cnic, session_id)")
+        db.execute("ALTER TABLE upload_staging ADD COLUMN IF NOT EXISTS warning TEXT")
+    else:
+        cols = [c[1] for c in db.fetchall("PRAGMA table_info(candidates)")]
+        if "session_id" not in cols:
+            db.execute("ALTER TABLE candidates ADD COLUMN session_id INTEGER")
+            cols.append("session_id")
+        srow = db.fetchone("SELECT sql FROM sqlite_master WHERE type='table'"
+                           " AND name='candidates'")
+        csql = (srow["sql"] if isinstance(srow, dict) else srow[0]) or ""
+        if "cnic TEXT NOT NULL UNIQUE" in csql:
+            # Rebuild: UNIQUE(cnic) alone blocks the same CNIC in a later session.
+            keep = [c for c in ("id", "name", "father_name", "cnic", "program",
+                                "roll_no", "discipline", "test_date", "obtained",
+                                "total", "merit_no", "uploaded_at", "session_id")
+                    if c in cols]
+            db.execute("""
+                CREATE TABLE candidates_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    father_name TEXT,
+                    cnic TEXT NOT NULL,
+                    program TEXT DEFAULT 'PhD',
+                    roll_no TEXT,
+                    discipline TEXT,
+                    test_date TEXT,
+                    obtained REAL,
+                    total REAL,
+                    merit_no TEXT,
+                    uploaded_at TEXT,
+                    session_id INTEGER,
+                    UNIQUE(cnic, session_id)
+                )
+            """)
+            collist = ", ".join(keep)
+            db.execute(f"INSERT INTO candidates_new ({collist}) SELECT {collist}"
+                       " FROM candidates")
+            db.execute("DROP TABLE candidates")
+            db.execute("ALTER TABLE candidates_new RENAME TO candidates")
+        scols = [c[1] for c in db.fetchall("PRAGMA table_info(upload_staging)")]
+        if "warning" not in scols:
+            db.execute("ALTER TABLE upload_staging ADD COLUMN warning TEXT")
+    # One default session for all pre-session records; exactly one active.
+    srow = db.fetchone("SELECT id FROM sessions ORDER BY id LIMIT 1")
+    if not srow:
+        now = datetime.now().strftime("%Y-%m-%d %H:%M")
+        if USE_PG:
+            db.execute("INSERT INTO sessions(name, created_at, is_active)"
+                       " VALUES (?, ?, 1) RETURNING id", ("Entry Test 2025", now))
+            sid = db.fetchone("SELECT id FROM sessions WHERE is_active=1")["id"]
+        else:
+            cur = db.execute("INSERT INTO sessions(name, created_at, is_active)"
+                             " VALUES (?, ?, 1)", ("Entry Test 2025", now))
+            sid = cur.lastrowid
+    else:
+        sid = srow["id"] if isinstance(srow, dict) else srow[0]
+    db.execute("UPDATE candidates SET session_id=? WHERE session_id IS NULL", (sid,))
+    arow = db.fetchone("SELECT id FROM sessions WHERE is_active=1 LIMIT 1")
+    if not arow:
+        db.execute("UPDATE sessions SET is_active=1 WHERE id=?", (sid,))
     db.commit()
     db.close()
 
@@ -343,6 +417,74 @@ def obtained_pct(obtained, total):
     if t <= 0:
         return None
     return round(o / t * 100, 1)
+
+
+# ---------------- test sessions ----------------
+def get_sessions():
+    try:
+        return [dict(r) for r in get_db().fetchall(
+            "SELECT * FROM sessions ORDER BY id")]
+    except Exception:
+        return []
+
+
+def active_session():
+    """The session students see by default (exactly one is active)."""
+    rows = get_sessions()
+    for s in rows:
+        if s.get("is_active"):
+            return s
+    return rows[0] if rows else None
+
+
+def session_name(sid):
+    for s in get_sessions():
+        if s["id"] == sid:
+            return s["name"]
+    return ""
+
+
+def get_or_create_session(name):
+    """Find a session by name or create it; a NEW session becomes the active
+    one (the previous session stays as an archive students can select)."""
+    db = get_db()
+    name = (name or "").strip() or "Entry Test"
+    row = db.fetchone("SELECT * FROM sessions WHERE name=?", (name,))
+    if row:
+        return dict(row), False
+    db.execute("UPDATE sessions SET is_active=0")
+    now = _now_str()
+    if USE_PG:
+        db.execute("INSERT INTO sessions(name, created_at, is_active)"
+                   " VALUES (?, ?, 1)", (name, now))
+    else:
+        db.execute("INSERT INTO sessions(name, created_at, is_active)"
+                   " VALUES (?, ?, 1)", (name, now))
+    db.commit()
+    return dict(db.fetchone("SELECT * FROM sessions WHERE name=?", (name,))), True
+
+
+# ---------------- QR verification ----------------
+def verify_url(cnic, sid=None):
+    base = request.host_url
+    if base.startswith("http://") and "localhost" not in base and "127.0.0.1" not in base:
+        base = "https://" + base[len("http://"):]
+    url = f"{base}verify/{cnic}"
+    if sid:
+        url += f"?s={sid}"
+    return url
+
+
+def make_qr_png(url):
+    import qrcode
+    qr = qrcode.QRCode(box_size=6, border=2)
+    qr.add_data(url)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="#1a1f36", back_color="white")
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    buf.seek(0)
+    return buf
 
 
 def _client_ip():
@@ -511,6 +653,9 @@ def build_card(r):
         "obtained_display": obtained_display,
         "passing_marks": passing_marks,
         "passing_pct": fmt_num(pct) + "%",
+        "session_id": r.get("session_id"),
+        "session_name": session_name(r.get("session_id")) if r.get("session_id") else "",
+        "verify_url": verify_url(norm_cnic(r.get("cnic", "")), r.get("session_id")),
         "status": status,
         "valid_till": fmt_date(valid),
         "footer_year": str(valid.year) if valid else str(datetime.now().year),
@@ -528,7 +673,8 @@ def index():
         if len(cnic) != 13:
             error = "Please enter a valid 13-digit CNIC number."
         else:
-            return redirect(url_for("result", cnic=cnic))
+            sid = request.form.get("session", type=int)
+            return redirect(url_for("result", cnic=cnic, s=sid))
     # Per-program announcement banners (set in admin → Upload Results).
     notices = []
     for prog, msg_key, date_key in (("PhD", "phd_notice", "phd_notice_date"),
@@ -538,14 +684,27 @@ def index():
             d = parse_date(get_setting(date_key, "").strip())
             notices.append({"program": prog, "message": msg,
                             "date": fmt_date(d) if d else ""})
+    sess = get_sessions()
+    act = active_session()
     return render_template("index.html", uni=UNI_NAME, short=UNI_SHORT,
-                           title=PORTAL_TITLE, error=error, notices=notices)
+                           title=PORTAL_TITLE, error=error, notices=notices,
+                           sessions=sess, active_id=act["id"] if act else None)
 
 
 @app.route("/result/<cnic>")
 def result(cnic):
     cnic = norm_cnic(cnic)
-    row = get_db().fetchone("SELECT * FROM candidates WHERE cnic=?", (cnic,))
+    sid = request.args.get("s", type=int)
+    if not sid:
+        act = active_session()
+        sid = act["id"] if act else None
+    db = get_db()
+    row = db.fetchone("SELECT * FROM candidates WHERE cnic=? AND session_id=?",
+                      (cnic, sid))
+    if not row and sid:
+        # A direct/old link without the right session: fall back to any session.
+        row = db.fetchone("SELECT * FROM candidates WHERE cnic=?"
+                          " ORDER BY session_id DESC", (cnic,))
     try:  # lookup analytics for the admin Lookup Log (never breaks the page)
         db = get_db()
         db.execute("INSERT INTO lookups(ts, cnic, found) VALUES (?, ?, ?)",
@@ -564,7 +723,16 @@ def result(cnic):
 @app.route("/result/<cnic>/pdf")
 def result_pdf(cnic):
     cnic = norm_cnic(cnic)
-    row = get_db().fetchone("SELECT * FROM candidates WHERE cnic=?", (cnic,))
+    sid = request.args.get("s", type=int)
+    if not sid:
+        act = active_session()
+        sid = act["id"] if act else None
+    db = get_db()
+    row = db.fetchone("SELECT * FROM candidates WHERE cnic=? AND session_id=?",
+                      (cnic, sid))
+    if not row and sid:
+        row = db.fetchone("SELECT * FROM candidates WHERE cnic=?"
+                          " ORDER BY session_id DESC", (cnic,))
     if not row:
         return "Result not found.", 404
     r = dict(row)
@@ -573,6 +741,44 @@ def result_pdf(cnic):
     filename = f"CUVAS_AdmissionTest_Result_{card['cnic_raw']}.pdf"
     return send_file(buf, mimetype="application/pdf",
                      as_attachment=True, download_name=filename)
+
+
+@app.route("/qr/<cnic>")
+def qr_code(cnic):
+    """QR code image encoding this record's public verification URL."""
+    cnic = norm_cnic(cnic)
+    sid = request.args.get("s", type=int)
+    if not sid:
+        act = active_session()
+        sid = act["id"] if act else None
+    row = get_db().fetchone("SELECT session_id FROM candidates WHERE cnic=?"
+                            " AND session_id=?", (cnic, sid))
+    if row:
+        sid = row["session_id"] if isinstance(row, dict) else row[0]
+    resp = send_file(make_qr_png(verify_url(cnic, sid)), mimetype="image/png")
+    resp.headers["Cache-Control"] = "public, max-age=86400"
+    return resp
+
+
+@app.route("/verify/<cnic>")
+def verify(cnic):
+    """Public verification page a QR scan lands on: confirms whether this
+    CNIC has an official record and shows the same summary as the card."""
+    cnic = norm_cnic(cnic)
+    sid = request.args.get("s", type=int)
+    db = get_db()
+    row = None
+    if sid:
+        row = db.fetchone("SELECT * FROM candidates WHERE cnic=? AND session_id=?",
+                          (cnic, sid))
+    if not row:
+        row = db.fetchone("SELECT * FROM candidates WHERE cnic=?"
+                          " ORDER BY session_id DESC", (cnic,))
+    card = None
+    if row:
+        card = build_card(dict(row))
+    return render_template("verify.html", uni=UNI_NAME, title=PORTAL_TITLE,
+                           card=card, cnic_disp=fmt_cnic(cnic)), (200 if card else 404)
 
 
 # ---------------- PDF generation ----------------
@@ -695,6 +901,18 @@ def build_pdf(card):
     _nw, nh = note.wrap(tw - 20, 120)
     note.drawOn(c, tx + 10, 140 - nh)
 
+    # QR verification code (bottom-right, clear of the note and the footer)
+    try:
+        from reportlab.lib.utils import ImageReader
+        qs = 46
+        qx, qy = bx + bw - 16 - qs, bbot + 44
+        c.drawImage(ImageReader(make_qr_png(card["verify_url"])), qx, qy, qs, qs)
+        c.setFillColor(DARK)
+        c.setFont("Helvetica", 8.5)
+        c.drawRightString(qx - 8, qy + qs / 2 - 3, "Scan to verify this result")
+    except Exception:
+        pass
+
     # Solid footer band
     fh = 36
     band(bx, bbot, bw, fh)
@@ -751,7 +969,12 @@ def admin_logout():
 @admin_required
 def admin_dashboard():
     db = get_db()
-    rows = [dict(r) for r in db.fetchall("SELECT * FROM candidates")]
+    act = active_session()
+    if act:
+        rows = [dict(r) for r in db.fetchall(
+            "SELECT * FROM candidates WHERE session_id=?", (act["id"],))]
+    else:
+        rows = [dict(r) for r in db.fetchall("SELECT * FROM candidates")]
     total = len(rows)
     phd = mphil = qcount = 0
     for r in rows:
@@ -818,7 +1041,8 @@ def admin_dashboard():
                            disc_stats=disc_stats, dist=dist,
                            top_scorers=top_scorers, pass_rate=pass_rate,
                            donut_dash=donut_dash, lk_total=lk_total,
-                           lk_fails=lk_fails)
+                           lk_fails=lk_fails,
+                           session_name=act["name"] if act else "")
 
 
 @app.route("/admin/upload")
@@ -829,8 +1053,10 @@ def admin_upload_page():
             "SELECT * FROM uploads ORDER BY id DESC LIMIT 10")]
     except Exception:
         history = []
+    act = active_session()
     return render_template("admin_upload.html", uni=UNI_NAME, title=PORTAL_TITLE,
-                           active="upload",
+                           active="upload", sessions=get_sessions(),
+                           active_session_name=act["name"] if act else "",
                            phd_pct=get_setting("phd_passing_percent", "60"),
                            mphil_pct=get_setting("mphil_passing_percent", "50"),
                            published=get_setting("published", "1") == "1",
@@ -898,7 +1124,7 @@ def admin_password():
                            active="password")
 
 
-def _filtered_students(q, program, degree, status):
+def _filtered_students(q, program, degree, status, session_id=None):
     """Students matching the records-page filters, with program + status computed."""
     db = get_db()
     clauses, params = [], []
@@ -906,6 +1132,9 @@ def _filtered_students(q, program, degree, status):
         like = f"%{q}%"
         clauses.append("(name LIKE ? OR cnic LIKE ? OR discipline LIKE ? OR father_name LIKE ?)")
         params += [like] * 4
+    if session_id:
+        clauses.append("session_id=?")
+        params.append(session_id)
     if program in ("PhD", "MPhil"):
         clauses.append("program=?")
         params.append(program)
@@ -926,6 +1155,18 @@ def _filtered_students(q, program, degree, status):
     return rows
 
 
+def _session_arg_id():
+    """Resolve the ?session= request arg: 'all' -> None, digits -> that id,
+    anything else (incl. missing) -> the active session's id."""
+    arg = request.args.get("session", "active")
+    if arg == "all":
+        return None
+    if arg and arg.isdigit():
+        return int(arg)
+    act = active_session()
+    return act["id"] if act else None
+
+
 def _degree_options():
     """Distinct applied-degree values for the degree filter."""
     db = get_db()
@@ -944,8 +1185,16 @@ def admin_students():
     status = request.args.get("status", "all")
     page = request.args.get("page", 1, type=int) or 1
     per_page = 15
+    act = active_session()
+    sess_arg = request.args.get("session", "active")
+    if sess_arg == "all":
+        sess_id = None
+    elif sess_arg.isdigit():
+        sess_id = int(sess_arg)
+    else:
+        sess_id = act["id"] if act else None
 
-    rows = _filtered_students(q, program, degree, status)
+    rows = _filtered_students(q, program, degree, status, session_id=sess_id)
 
     total = len(rows)
     pages = max(1, (total + per_page - 1) // per_page)
@@ -955,7 +1204,8 @@ def admin_students():
                            active="students", rows=page_rows, page=page, pages=pages,
                            total=total, q=q, program=program, degree=degree,
                            degrees=_degree_options(), status=status,
-                           per_page=per_page)
+                           per_page=per_page, sessions=get_sessions(),
+                           sess_arg=sess_arg)
 
 
 @app.route("/admin/export")
@@ -969,7 +1219,8 @@ def admin_export():
     program = request.args.get("program", "all")
     degree = request.args.get("degree", "all")
     status = request.args.get("status", "all")
-    rows = _filtered_students(q, program, degree, status)
+    rows = _filtered_students(q, program, degree, status,
+                              session_id=_session_arg_id())
     log_audit("Records exported", f"{len(rows)} record(s) to Excel")
     return _xlsx_response(rows, "cuvas_students_export.xlsx")
 
@@ -990,7 +1241,8 @@ def admin_export_pdf():
     program = request.args.get("program", "all")
     degree = request.args.get("degree", "all")
     status = request.args.get("status", "all")
-    rows = _filtered_students(q, program, degree, status)
+    rows = _filtered_students(q, program, degree, status,
+                              session_id=_session_arg_id())
 
     INDIGO = colors.HexColor("#2d3290")
     DARK = colors.HexColor("#1a1f36")
@@ -1185,6 +1437,95 @@ def admin_clear():
     return redirect(url_for("admin_students"))
 
 
+# ---------------- admin: test sessions ----------------
+@app.route("/admin/sessions")
+@admin_required
+def admin_sessions():
+    db = get_db()
+    sess = []
+    for s in get_sessions():
+        row = db.fetchone("SELECT COUNT(*) AS c FROM candidates WHERE session_id=?",
+                          (s["id"],))
+        s["count"] = row["c"] if isinstance(row, dict) else row[0]
+        sess.append(s)
+    return render_template("admin_sessions.html", uni=UNI_NAME, title=PORTAL_TITLE,
+                           active="sessions", sessions=sess)
+
+
+@app.route("/admin/sessions/create", methods=["POST"])
+@admin_required
+def admin_sessions_create():
+    name = (request.form.get("name") or "").strip()
+    if not name:
+        flash("Session name is required.")
+        return redirect(url_for("admin_sessions"))
+    sess, created = get_or_create_session(name)
+    if created:
+        log_audit("Session created", name)
+        flash(f"Session '{name}' created and set active. Upload results into it from Upload Results.")
+    else:
+        flash(f"Session '{name}' already exists.")
+    return redirect(url_for("admin_sessions"))
+
+
+@app.route("/admin/sessions/<int:sid>/activate", methods=["POST"])
+@admin_required
+def admin_sessions_activate(sid):
+    db = get_db()
+    row = db.fetchone("SELECT * FROM sessions WHERE id=?", (sid,))
+    if not row:
+        flash("Session not found.")
+        return redirect(url_for("admin_sessions"))
+    db.execute("UPDATE sessions SET is_active=0")
+    db.execute("UPDATE sessions SET is_active=1 WHERE id=?", (sid,))
+    db.commit()
+    log_audit("Session activated", dict(row)["name"])
+    flash(f"Session '{dict(row)['name']}' is now the active session.")
+    return redirect(url_for("admin_sessions"))
+
+
+@app.route("/admin/sessions/<int:sid>/delete", methods=["POST"])
+@admin_required
+def admin_sessions_delete(sid):
+    db = get_db()
+    row = db.fetchone("SELECT COUNT(*) AS c FROM candidates WHERE session_id=?", (sid,))
+    n = row["c"] if isinstance(row, dict) else row[0]
+    if n:
+        flash("Only empty sessions can be deleted — this one still has records.")
+        return redirect(url_for("admin_sessions"))
+    srow = db.fetchone("SELECT * FROM sessions WHERE id=?", (sid,))
+    db.execute("DELETE FROM sessions WHERE id=?", (sid,))
+    db.commit()
+    if srow:
+        log_audit("Session deleted", dict(srow)["name"])
+    flash("Session deleted.")
+    return redirect(url_for("admin_sessions"))
+
+
+# ---------------- admin: global quick search ----------------
+@app.route("/admin/quicksearch")
+@admin_required
+def admin_quicksearch():
+    q = (request.args.get("q") or "").strip()
+    if not q:
+        return redirect(url_for("admin_students"))
+    digits = norm_cnic(q)
+    db = get_db()
+    row = None
+    if len(digits) == 13:
+        row = db.fetchone("SELECT id FROM candidates WHERE cnic=?"
+                          " ORDER BY session_id DESC", (digits,))
+    if not row:
+        rows = db.fetchall("SELECT id FROM candidates WHERE name LIKE ?",
+                           (f"%{q}%",))
+        if len(rows) == 1:
+            row = rows[0]
+    if row:
+        rid = row["id"] if isinstance(row, dict) else row[0]
+        return redirect(url_for("admin_edit_student", cid=rid))
+    return redirect(url_for("admin_students", q=q, session="all"))
+
+
 # ---------------- admin: activity log ----------------
 @app.route("/admin/activity")
 @admin_required
@@ -1197,7 +1538,7 @@ def admin_activity():
 
 # ---------------- admin: backups ----------------
 BACKUP_COLS = ("name", "father_name", "cnic", "program", "roll_no", "discipline",
-               "test_date", "obtained", "total", "merit_no", "uploaded_at")
+               "test_date", "obtained", "total", "merit_no", "uploaded_at", "session_id")
 
 
 @app.route("/admin/backups")
@@ -1240,11 +1581,15 @@ def admin_backup_restore(bid):
     make_backup(f"Before restoring backup #{bid}")
     recs = json.loads(dict(row)["data"] or "[]")
     db.execute("DELETE FROM candidates")
+    act = active_session()
+    act_id = act["id"] if act else None
     placeholders = ", ".join(["?"] * len(BACKUP_COLS))
     for rec in recs:
         db.execute(f"INSERT INTO candidates ({', '.join(BACKUP_COLS)}) "
                    f"VALUES ({placeholders})",
-                   tuple(rec.get(c, "") or None for c in BACKUP_COLS))
+                   tuple((rec.get(c, "") or None) if c != "session_id"
+                         else (rec.get("session_id") or act_id)
+                         for c in BACKUP_COLS))
     db.commit()
     log_audit("Backup restored", f"backup #{bid} — {len(recs)} record(s)")
     flash(f"Backup #{bid} restored ({len(recs)} record(s)).")
@@ -1274,8 +1619,8 @@ def admin_lookups():
 
 
 # ---------------- admin: merit list ----------------
-def _merit_rows(program="all", degree="all"):
-    rows = _filtered_students("", program, degree, "all")
+def _merit_rows(program="all", degree="all", session_id=None):
+    rows = _filtered_students("", program, degree, "all", session_id=session_id)
     for r in rows:
         r["pct"] = obtained_pct(r.get("obtained"), r.get("total"))
     rows.sort(key=lambda r: (-(r["pct"] if r["pct"] is not None else -1),
@@ -1290,10 +1635,12 @@ def _merit_rows(program="all", degree="all"):
 def admin_merit():
     program = request.args.get("program", "all")
     degree = request.args.get("degree", "all")
-    rows = _merit_rows(program, degree)
+    rows = _merit_rows(program, degree, session_id=_session_arg_id())
     return render_template("admin_merit.html", uni=UNI_NAME, title=PORTAL_TITLE,
                            active="merit", rows=rows, program=program,
-                           degree=degree, degrees=_degree_options())
+                           degree=degree, degrees=_degree_options(),
+                           sessions=get_sessions(),
+                           sess_arg=request.args.get("session", "active"))
 
 
 @app.route("/admin/merit-pdf")
@@ -1310,7 +1657,7 @@ def admin_merit_pdf():
 
     program = request.args.get("program", "all")
     degree = request.args.get("degree", "all")
-    rows = _merit_rows(program, degree)
+    rows = _merit_rows(program, degree, session_id=_session_arg_id())
 
     INDIGO = colors.HexColor("#2d3290")
     DARK = colors.HexColor("#1a1f36")
@@ -1538,7 +1885,24 @@ def admin_upload():
     # Stage every row first — nothing is saved until the admin reviews the
     # preview page and presses Confirm.
     db = get_db()
-    existing = {r["cnic"] for r in db.fetchall("SELECT cnic FROM candidates")}
+    sess_name = (request.form.get("session_name") or "").strip()
+    act = active_session()
+    if not sess_name:
+        sess_name = act["name"] if act else "Entry Test"
+    # CNIC existence is judged inside the target session only — the same CNIC
+    # in an older session is a legitimately different record.
+    target = db.fetchone("SELECT id FROM sessions WHERE name=?", (sess_name,))
+    existing = set()
+    if target:
+        tid = target["id"] if isinstance(target, dict) else target[0]
+        existing = {r["cnic"] for r in db.fetchall(
+            "SELECT cnic FROM candidates WHERE session_id=?", (tid,))}
+    # name -> CNICs map (existing records + this file) for duplicate-name warnings
+    name_map = {}
+    for r in db.fetchall("SELECT name, cnic FROM candidates"):
+        key = re.sub(r"\s+", " ", (r["name"] or "").strip().lower())
+        if key:
+            name_map.setdefault(key, set()).add(r["cnic"])
     batch = datetime.now().strftime("%Y%m%d%H%M%S") + "-" + os.urandom(3).hex()
     db.execute("DELETE FROM upload_staging")  # one pending preview at a time
     staged = 0
@@ -1563,18 +1927,46 @@ def admin_upload():
         elif len(cnic) != 13:
             status, reason = "invalid", "CNIC is not 13 digits"
         elif cnic in existing:
-            status, reason = "update", "CNIC already exists — record will be updated"
+            status, reason = "update", "CNIC already exists in this session — record will be updated"
         else:
             status, reason = "new", ""
             existing.add(cnic)
-        db.execute("INSERT INTO upload_staging(batch, row_no, status, reason, data)"
-                   " VALUES (?, ?, ?, ?, ?)",
-                   (batch, row_no, status, reason, json.dumps(rec)))
+        # ---- non-blocking warnings (row still saves; admin just sees them) ----
+        warns = []
+        if status != "invalid":
+            try:
+                obt_f = float(rec.get("obtained") or "nan")
+            except ValueError:
+                obt_f = float("nan")
+            try:
+                tot_f = float(rec.get("total") or "nan")
+            except ValueError:
+                tot_f = float("nan")
+            if obt_f == obt_f and tot_f == tot_f:  # both are real numbers
+                if obt_f > tot_f:
+                    warns.append("Obtained marks are MORE than total marks")
+                elif tot_f > 0 and obt_f == tot_f:
+                    warns.append("Full marks (100%) — please double-check")
+                elif obt_f == 0:
+                    warns.append("Zero marks — please double-check")
+                elif obt_f < 0:
+                    warns.append("Negative marks")
+            if not (rec.get("father_name") or "").strip():
+                warns.append("Father's name is empty")
+            key = re.sub(r"\s+", " ", (rec.get("name") or "").strip().lower())
+            if key and key in name_map and cnic not in name_map[key]:
+                warns.append("Same name already exists with a different CNIC")
+            if key:
+                name_map.setdefault(key, set()).add(cnic)
+        db.execute("INSERT INTO upload_staging(batch, row_no, status, reason, data, warning)"
+                   " VALUES (?, ?, ?, ?, ?, ?)",
+                   (batch, row_no, status, reason, json.dumps(rec), "; ".join(warns)))
         staged += 1
     db.commit()
     session["upload_batch"] = batch
     session["upload_file"] = file.filename
-    log_audit("Upload staged for preview", f"{file.filename} — {staged} row(s)")
+    session["upload_session"] = sess_name
+    log_audit("Upload staged for preview", f"{file.filename} — {staged} row(s), session '{sess_name}'")
     return redirect(url_for("admin_upload_preview"))
 
 
@@ -1593,10 +1985,15 @@ def admin_upload_preview():
         d["rec"] = json.loads(d["data"] or "{}")
         rows.append(d)
     counts = {"new_count": 0, "update_count": 0, "invalid_count": 0}
+    warn_count = 0
     for d in rows:
         counts[d["status"] + "_count"] = counts.get(d["status"] + "_count", 0) + 1
+        if d.get("warning"):
+            warn_count += 1
     return render_template("admin_preview.html", uni=UNI_NAME, title=PORTAL_TITLE,
                            active="upload", rows=rows, counts=counts,
+                           warn_count=warn_count,
+                           sess_name=session.get("upload_session", ""),
                            filename=session.get("upload_file", ""))
 
 
@@ -1612,14 +2009,16 @@ def admin_upload_confirm():
                          (batch,))
     filename = session.get("upload_file", "upload")
     make_backup(f"Before upload: {filename}")
+    sess, sess_created = get_or_create_session(session.get("upload_session", ""))
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     cols = ("name", "father_name", "cnic", "program", "roll_no", "discipline",
-            "test_date", "obtained", "total", "merit_no", "uploaded_at")
+            "test_date", "obtained", "total", "merit_no", "uploaded_at", "session_id")
     placeholders = ", ".join(["?"] * len(cols))
     if USE_PG:
         upsert = (f"INSERT INTO candidates ({', '.join(cols)}) VALUES ({placeholders}) "
-                  "ON CONFLICT(cnic) DO UPDATE SET "
-                  + ", ".join(f"{c}=EXCLUDED.{c}" for c in cols if c != "cnic"))
+                  "ON CONFLICT(cnic, session_id) DO UPDATE SET "
+                  + ", ".join(f"{c}=EXCLUDED.{c}" for c in cols
+                              if c not in ("cnic", "session_id")))
     else:
         upsert = f"INSERT OR REPLACE INTO candidates ({', '.join(cols)}) VALUES ({placeholders})"
     imported = updated = skipped = 0
@@ -1633,7 +2032,7 @@ def admin_upload_confirm():
                   rec.get("program") or "PhD", rec.get("roll_no"),
                   rec.get("discipline"), rec.get("test_date"),
                   rec.get("obtained") or None, rec.get("total") or None,
-                  rec.get("merit_no"), now)
+                  rec.get("merit_no"), now, sess["id"])
         try:
             db.execute(upsert, values)
             if d["status"] == "update":
@@ -1648,10 +2047,13 @@ def admin_upload_confirm():
     db.commit()
     session.pop("upload_batch", None)
     session.pop("upload_file", None)
+    session.pop("upload_session", None)
     log_audit("Upload applied", f"{filename} — {imported} new, {updated} updated, "
-              f"{skipped} skipped (backup saved first)")
+              f"{skipped} skipped, session '{sess['name']}'"
+              f"{' (new session, now active)' if sess_created else ''} (backup saved first)")
     flash(f"Upload complete: {imported} new record(s), {updated} updated"
-          + (f", {skipped} invalid row(s) skipped." if skipped else "."))
+          + (f", {skipped} invalid row(s) skipped." if skipped else ".")
+          + f" Session: {sess['name']}")
     return redirect(url_for("admin_upload_page"))
 
 
@@ -1665,6 +2067,7 @@ def admin_upload_cancel():
         db.commit()
     session.pop("upload_batch", None)
     session.pop("upload_file", None)
+    session.pop("upload_session", None)
     flash("Upload cancelled — nothing was saved.")
     return redirect(url_for("admin_upload_page"))
 
