@@ -257,23 +257,33 @@ def init_db():
     """)
     if USE_PG:
         db.execute("ALTER TABLE candidates ADD COLUMN IF NOT EXISTS session_id INTEGER")
+        db.execute("ALTER TABLE candidates ADD COLUMN IF NOT EXISTS deleted_at TEXT")
         db.execute("ALTER TABLE candidates DROP CONSTRAINT IF EXISTS candidates_cnic_key")
-        db.execute("CREATE UNIQUE INDEX IF NOT EXISTS candidates_cnic_session_uidx"
-                   " ON candidates(cnic, session_id)")
+        # Trash (soft delete): uniqueness applies to LIVE rows only, so a
+        # trashed record never blocks re-adding the same CNIC + session.
+        db.execute("DROP INDEX IF EXISTS candidates_cnic_session_uidx")
+        db.execute("CREATE UNIQUE INDEX IF NOT EXISTS candidates_live_uidx"
+                   " ON candidates(cnic, session_id) WHERE deleted_at IS NULL")
         db.execute("ALTER TABLE upload_staging ADD COLUMN IF NOT EXISTS warning TEXT")
     else:
         cols = [c[1] for c in db.fetchall("PRAGMA table_info(candidates)")]
         if "session_id" not in cols:
             db.execute("ALTER TABLE candidates ADD COLUMN session_id INTEGER")
             cols.append("session_id")
+        if "deleted_at" not in cols:
+            db.execute("ALTER TABLE candidates ADD COLUMN deleted_at TEXT")
+            cols.append("deleted_at")
         srow = db.fetchone("SELECT sql FROM sqlite_master WHERE type='table'"
                            " AND name='candidates'")
         csql = (srow["sql"] if isinstance(srow, dict) else srow[0]) or ""
-        if "cnic TEXT NOT NULL UNIQUE" in csql:
-            # Rebuild: UNIQUE(cnic) alone blocks the same CNIC in a later session.
+        if "cnic TEXT NOT NULL UNIQUE" in csql or "UNIQUE(cnic, session_id)" in csql:
+            # Rebuild without a table-level UNIQUE: uniqueness moves to a
+            # partial index over live rows only (see below), so the same CNIC
+            # can exist in later sessions and alongside trashed records.
             keep = [c for c in ("id", "name", "father_name", "cnic", "program",
                                 "roll_no", "discipline", "test_date", "obtained",
-                                "total", "merit_no", "uploaded_at", "session_id")
+                                "total", "merit_no", "uploaded_at", "session_id",
+                                "deleted_at")
                     if c in cols]
             db.execute("""
                 CREATE TABLE candidates_new (
@@ -290,7 +300,7 @@ def init_db():
                     merit_no TEXT,
                     uploaded_at TEXT,
                     session_id INTEGER,
-                    UNIQUE(cnic, session_id)
+                    deleted_at TEXT
                 )
             """)
             collist = ", ".join(keep)
@@ -298,6 +308,8 @@ def init_db():
                        " FROM candidates")
             db.execute("DROP TABLE candidates")
             db.execute("ALTER TABLE candidates_new RENAME TO candidates")
+        db.execute("CREATE UNIQUE INDEX IF NOT EXISTS candidates_live_uidx"
+                   " ON candidates(cnic, session_id) WHERE deleted_at IS NULL")
         scols = [c[1] for c in db.fetchall("PRAGMA table_info(upload_staging)")]
         if "warning" not in scols:
             db.execute("ALTER TABLE upload_staging ADD COLUMN warning TEXT")
@@ -399,7 +411,8 @@ def make_backup(reason):
     undone from Admin -> Backups. Returns the number of records saved."""
     try:
         db = get_db()
-        rows = [dict(r) for r in db.fetchall("SELECT * FROM candidates")]
+        rows = [dict(r) for r in db.fetchall(
+            "SELECT * FROM candidates WHERE deleted_at IS NULL")]
         db.execute("INSERT INTO backups(ts, reason, count, data) VALUES (?, ?, ?, ?)",
                    (_now_str(), reason, len(rows), json.dumps(rows)))
         db.commit()
@@ -716,7 +729,8 @@ def result(cnic):
     db = get_db()
     # Strict: a result is only ever shown from the selected session. A record
     # in another session must NOT appear here (the student picks that session).
-    row = db.fetchone("SELECT * FROM candidates WHERE cnic=? AND session_id=?",
+    row = db.fetchone("SELECT * FROM candidates WHERE cnic=? AND session_id=?"
+                      " AND deleted_at IS NULL",
                       (cnic, sid))
     try:  # lookup analytics for the admin Lookup Log (never breaks the page)
         db = get_db()
@@ -743,7 +757,8 @@ def result_pdf(cnic):
         act = active_session()
         sid = act["id"] if act else None
     db = get_db()
-    row = db.fetchone("SELECT * FROM candidates WHERE cnic=? AND session_id=?",
+    row = db.fetchone("SELECT * FROM candidates WHERE cnic=? AND session_id=?"
+                      " AND deleted_at IS NULL",
                       (cnic, sid))
     if not row:
         return "Result not found.", 404
@@ -764,7 +779,7 @@ def qr_code(cnic):
         act = active_session()
         sid = act["id"] if act else None
     row = get_db().fetchone("SELECT session_id FROM candidates WHERE cnic=?"
-                            " AND session_id=?", (cnic, sid))
+                            " AND session_id=? AND deleted_at IS NULL", (cnic, sid))
     if row:
         sid = row["session_id"] if isinstance(row, dict) else row[0]
     resp = send_file(make_qr_png(verify_url(cnic, sid)), mimetype="image/png")
@@ -782,10 +797,12 @@ def verify(cnic):
     row = None
     if sid:
         # The QR names its session: verify strictly against that session.
-        row = db.fetchone("SELECT * FROM candidates WHERE cnic=? AND session_id=?",
+        row = db.fetchone("SELECT * FROM candidates WHERE cnic=? AND session_id=?"
+                          " AND deleted_at IS NULL",
                           (cnic, sid))
     else:
         row = db.fetchone("SELECT * FROM candidates WHERE cnic=?"
+                          " AND deleted_at IS NULL"
                           " ORDER BY session_id DESC", (cnic,))
     card = None
     if row:
@@ -985,9 +1002,11 @@ def admin_dashboard():
     act = active_session()
     if act:
         rows = [dict(r) for r in db.fetchall(
-            "SELECT * FROM candidates WHERE session_id=?", (act["id"],))]
+            "SELECT * FROM candidates WHERE session_id=? AND deleted_at IS NULL",
+            (act["id"],))]
     else:
-        rows = [dict(r) for r in db.fetchall("SELECT * FROM candidates")]
+        rows = [dict(r) for r in db.fetchall(
+            "SELECT * FROM candidates WHERE deleted_at IS NULL")]
     total = len(rows)
     phd = mphil = qcount = 0
     for r in rows:
@@ -1148,7 +1167,7 @@ def admin_password():
 def _filtered_students(q, program, degree, status, session_id=None):
     """Students matching the records-page filters, with program + status computed."""
     db = get_db()
-    clauses, params = [], []
+    clauses, params = ["deleted_at IS NULL"], []
     if q:
         like = f"%{q}%"
         clauses.append("(name LIKE ? OR cnic LIKE ? OR discipline LIKE ? OR father_name LIKE ?)")
@@ -1193,6 +1212,7 @@ def _degree_options():
     db = get_db()
     rows = db.fetchall("SELECT DISTINCT discipline FROM candidates "
                        "WHERE discipline IS NOT NULL AND TRIM(discipline) != '' "
+                       "AND deleted_at IS NULL "
                        "ORDER BY discipline")
     return [r["discipline"] for r in rows]
 
@@ -1390,7 +1410,8 @@ def admin_export_pdf():
 @admin_required
 def admin_edit_student(cid):
     db = get_db()
-    row = db.fetchone("SELECT * FROM candidates WHERE id=?", (cid,))
+    row = db.fetchone("SELECT * FROM candidates WHERE id=? AND deleted_at IS NULL",
+                      (cid,))
     if not row:
         flash("Student not found.", "err")
         return redirect(url_for("admin_students"))
@@ -1410,7 +1431,8 @@ def admin_edit_student(cid):
         if not name or len(cnic) != 13:
             flash("Name and a valid 13-digit CNIC are required.", "err")
             return redirect(url_for("admin_edit_student", cid=cid))
-        dup = db.fetchone("SELECT id FROM candidates WHERE cnic=? AND id<>?", (cnic, cid))
+        dup = db.fetchone("SELECT id FROM candidates WHERE cnic=? AND id<>?"
+                          " AND deleted_at IS NULL", (cnic, cid))
         if dup:
             flash("Another student already uses this CNIC.", "err")
             return redirect(url_for("admin_edit_student", cid=cid))
@@ -1439,10 +1461,11 @@ def admin_delete_student(cid):
     row = db.fetchone("SELECT name, cnic FROM candidates WHERE id=?", (cid,))
     label = f"{row['name']} ({fmt_cnic(row['cnic'])})" if row else f"id {cid}"
     make_backup(f"Before deleting {label}")
-    db.execute("DELETE FROM candidates WHERE id=?", (cid,))
+    db.execute("UPDATE candidates SET deleted_at=? WHERE id=?", (_now_str(), cid))
     db.commit()
-    log_audit("Record deleted", label)
-    flash("Student record deleted. A backup was saved under Admin → Backups.", "del")
+    log_audit("Record moved to Trash", label)
+    flash("Student record moved to Trash — restore it any time within 30 days "
+          "from Admin → Trash.", "del")
     return redirect(url_for("admin_students"))
 
 
@@ -1451,10 +1474,12 @@ def admin_delete_student(cid):
 def admin_clear():
     db = get_db()
     n = make_backup("Before deleting ALL records")
-    db.execute("DELETE FROM candidates")
+    db.execute("UPDATE candidates SET deleted_at=? WHERE deleted_at IS NULL",
+               (_now_str(),))
     db.commit()
-    log_audit("All records deleted", f"{n} record(s) were backed up first")
-    flash("All result records deleted. A backup was saved under Admin → Backups.", "del")
+    log_audit("All records moved to Trash", f"{n} record(s) were backed up first")
+    flash("All result records moved to Trash — restore them within 30 days "
+          "from Admin → Trash.", "del")
     return redirect(url_for("admin_students"))
 
 
@@ -1702,9 +1727,11 @@ def admin_summary_pdf():
     db = get_db()
     if sid:
         rows = [dict(r) for r in db.fetchall(
-            "SELECT * FROM candidates WHERE session_id=?", (sid,))]
+            "SELECT * FROM candidates WHERE session_id=? AND deleted_at IS NULL",
+            (sid,))]
     else:
-        rows = [dict(r) for r in db.fetchall("SELECT * FROM candidates")]
+        rows = [dict(r) for r in db.fetchall(
+            "SELECT * FROM candidates WHERE deleted_at IS NULL")]
     buf = build_summary_pdf(rows, sess_name)
     log_audit("Summary report downloaded", f"session '{sess_name}' — {len(rows)} record(s)")
     fname = "CUVAS_Summary_Report_" + re.sub(r"[^A-Za-z0-9]+", "_", sess_name).strip("_") + ".pdf"
@@ -1719,7 +1746,8 @@ def admin_sessions():
     db = get_db()
     sess = []
     for s in get_sessions():
-        row = db.fetchone("SELECT COUNT(*) AS c FROM candidates WHERE session_id=?",
+        row = db.fetchone("SELECT COUNT(*) AS c FROM candidates WHERE session_id=?"
+                          " AND deleted_at IS NULL",
                           (s["id"],))
         s["count"] = row["c"] if isinstance(row, dict) else row[0]
         sess.append(s)
@@ -1747,11 +1775,15 @@ def admin_sessions_activate(sid):
 @admin_required
 def admin_sessions_delete(sid):
     db = get_db()
-    row = db.fetchone("SELECT COUNT(*) AS c FROM candidates WHERE session_id=?", (sid,))
+    row = db.fetchone("SELECT COUNT(*) AS c FROM candidates WHERE session_id=?"
+                      " AND deleted_at IS NULL", (sid,))
     n = row["c"] if isinstance(row, dict) else row[0]
     if n:
         flash("Only empty sessions can be deleted — this one still has records.", "err")
         return redirect(url_for("admin_sessions"))
+    # Only trashed records remain: they go permanently with the session.
+    db.execute("DELETE FROM candidates WHERE session_id=? AND deleted_at IS NOT NULL",
+               (sid,))
     srow = db.fetchone("SELECT * FROM sessions WHERE id=?", (sid,))
     db.execute("DELETE FROM sessions WHERE id=?", (sid,))
     db.commit()
@@ -1775,7 +1807,8 @@ def admin_sessions_archive(sid):
         return redirect(url_for("admin_sessions"))
     sess_name = dict(srow)["name"]
     rows = [dict(r) for r in db.fetchall(
-        "SELECT * FROM candidates WHERE session_id=? ORDER BY name", (sid,))]
+        "SELECT * FROM candidates WHERE session_id=? AND deleted_at IS NULL"
+        " ORDER BY name", (sid,))]
     xrows = _filtered_students("", "all", "all", "all", session_id=sid)
     mrows = _merit_rows("all", "all", session_id=sid)
     zipbuf = io.BytesIO()
@@ -1808,6 +1841,100 @@ def admin_sessions_archive(sid):
                      download_name=fname)
 
 
+# ---------------- admin: trash (soft-deleted records) ----------------
+TRASH_DAYS = 30
+
+
+def _parse_ts(s):
+    for f in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
+        try:
+            return datetime.strptime((s or "")[:19], f)
+        except (TypeError, ValueError):
+            pass
+    return None
+
+
+def _purge_old_trash():
+    """Permanently remove records that have sat in Trash over TRASH_DAYS."""
+    try:
+        db = get_db()
+        cutoff = datetime.now() - timedelta(days=TRASH_DAYS)
+        n = 0
+        for r in db.fetchall("SELECT id, deleted_at FROM candidates"
+                             " WHERE deleted_at IS NOT NULL"):
+            d = _parse_ts(dict(r)["deleted_at"])
+            if d and d < cutoff:
+                db.execute("DELETE FROM candidates WHERE id=?", (dict(r)["id"],))
+                n += 1
+        if n:
+            db.commit()
+        return n
+    except Exception:
+        return 0
+
+
+@app.route("/admin/trash")
+@admin_required
+def admin_trash():
+    _purge_old_trash()
+    db = get_db()
+    rows = [dict(r) for r in db.fetchall(
+        "SELECT * FROM candidates WHERE deleted_at IS NOT NULL"
+        " ORDER BY deleted_at DESC")]
+    now = datetime.now()
+    for r in rows:
+        d = _parse_ts(r.get("deleted_at"))
+        r["deleted_disp"] = d.strftime("%d %b %Y, %I:%M %p") if d else (r.get("deleted_at") or "")
+        r["days_left"] = max(0, TRASH_DAYS - ((now - d).days if d else 0))
+        r["program"] = r.get("program") or "PhD"
+        r["session_label"] = session_name(r.get("session_id")) or "—"
+    return render_template("admin_trash.html", uni=UNI_NAME, title=PORTAL_TITLE,
+                           active="trash", rows=rows, trash_days=TRASH_DAYS)
+
+
+@app.route("/admin/trash/<int:cid>/restore", methods=["POST"])
+@admin_required
+def admin_trash_restore(cid):
+    db = get_db()
+    row = db.fetchone("SELECT * FROM candidates WHERE id=?"
+                      " AND deleted_at IS NOT NULL", (cid,))
+    if not row:
+        flash("Record not found in Trash.", "err")
+        return redirect(url_for("admin_trash"))
+    r = dict(row)
+    label = f"{r.get('name')} ({fmt_cnic(r.get('cnic') or '')})"
+    dup = db.fetchone("SELECT id FROM candidates WHERE cnic=? AND session_id=?"
+                      " AND deleted_at IS NULL AND id<>?",
+                      (r.get("cnic"), r.get("session_id"), cid))
+    if dup:
+        flash("Cannot restore: a newer live record with this CNIC already exists "
+              "in that session. Delete that record first, or delete this "
+              "trashed copy forever.", "err")
+        return redirect(url_for("admin_trash"))
+    db.execute("UPDATE candidates SET deleted_at=NULL WHERE id=?", (cid,))
+    db.commit()
+    log_audit("Record restored from Trash", label)
+    flash(f"Record restored: {label}.")
+    return redirect(url_for("admin_trash"))
+
+
+@app.route("/admin/trash/<int:cid>/purge", methods=["POST"])
+@admin_required
+def admin_trash_purge(cid):
+    db = get_db()
+    row = db.fetchone("SELECT name, cnic FROM candidates WHERE id=?"
+                      " AND deleted_at IS NOT NULL", (cid,))
+    if not row:
+        flash("Record not found in Trash.", "err")
+        return redirect(url_for("admin_trash"))
+    label = f"{row['name']} ({fmt_cnic(row['cnic'])})"
+    db.execute("DELETE FROM candidates WHERE id=?", (cid,))
+    db.commit()
+    log_audit("Record permanently deleted (Trash purge)", label)
+    flash(f"Record permanently deleted: {label}. This cannot be undone.", "del")
+    return redirect(url_for("admin_trash"))
+
+
 # ---------------- admin: global quick search ----------------
 @app.route("/admin/quicksearch")
 @admin_required
@@ -1820,9 +1947,11 @@ def admin_quicksearch():
     row = None
     if len(digits) == 13:
         row = db.fetchone("SELECT id FROM candidates WHERE cnic=?"
+                          " AND deleted_at IS NULL"
                           " ORDER BY session_id DESC", (digits,))
     if not row:
-        rows = db.fetchall("SELECT id FROM candidates WHERE name LIKE ?",
+        rows = db.fetchall("SELECT id FROM candidates WHERE name LIKE ?"
+                           " AND deleted_at IS NULL",
                            (f"%{q}%",))
         if len(rows) == 1:
             row = rows[0]
@@ -2123,7 +2252,8 @@ def admin_students_bulk():
         return redirect(url_for("admin_students"))
     db = get_db()
     rows = [dict(r) for r in db.fetchall(
-        f"SELECT * FROM candidates WHERE id IN ({','.join(['?'] * len(ids))})", ids)]
+        f"SELECT * FROM candidates WHERE deleted_at IS NULL"
+        f" AND id IN ({','.join(['?'] * len(ids))})", ids)]
     for r in rows:
         r["program"] = r.get("program") or "PhD"
         _, r["status"] = calc_result(r.get("obtained"), r.get("total"),
@@ -2133,11 +2263,13 @@ def admin_students_bulk():
         return _xlsx_response(rows, "cuvas_selected_students.xlsx")
     if action == "delete":
         make_backup(f"Before bulk delete ({len(rows)} record(s))")
-        db.execute(f"DELETE FROM candidates WHERE id IN ({','.join(['?'] * len(ids))})",
-                   ids)
+        db.execute(f"UPDATE candidates SET deleted_at=?"
+                   f" WHERE id IN ({','.join(['?'] * len(ids))})",
+                   [_now_str()] + ids)
         db.commit()
-        log_audit("Bulk delete", f"{len(rows)} record(s)")
-        flash(f"{len(rows)} record(s) deleted. A backup was saved under Admin → Backups.", "del")
+        log_audit("Bulk delete (to Trash)", f"{len(rows)} record(s)")
+        flash(f"{len(rows)} record(s) moved to Trash — restore within 30 days "
+              f"from Admin → Trash.", "del")
         return redirect(url_for("admin_students"))
     flash("Unknown bulk action.", "err")
     return redirect(url_for("admin_students"))
@@ -2216,10 +2348,12 @@ def admin_upload():
     if target:
         tid = target["id"] if isinstance(target, dict) else target[0]
         existing = {r["cnic"] for r in db.fetchall(
-            "SELECT cnic FROM candidates WHERE session_id=?", (tid,))}
+            "SELECT cnic FROM candidates WHERE session_id=? AND deleted_at IS NULL",
+            (tid,))}
     # name -> CNICs map (existing records + this file) for duplicate-name warnings
     name_map = {}
-    for r in db.fetchall("SELECT name, cnic FROM candidates"):
+    for r in db.fetchall("SELECT name, cnic FROM candidates"
+                         " WHERE deleted_at IS NULL"):
         key = re.sub(r"\s+", " ", (r["name"] or "").strip().lower())
         if key:
             name_map.setdefault(key, set()).add(r["cnic"])
@@ -2335,8 +2469,10 @@ def admin_upload_confirm():
             "test_date", "obtained", "total", "merit_no", "uploaded_at", "session_id")
     placeholders = ", ".join(["?"] * len(cols))
     if USE_PG:
+        # The uniqueness index is partial (live rows only — Trash), so the
+        # conflict target needs the same predicate.
         upsert = (f"INSERT INTO candidates ({', '.join(cols)}) VALUES ({placeholders}) "
-                  "ON CONFLICT(cnic, session_id) DO UPDATE SET "
+                  "ON CONFLICT(cnic, session_id) WHERE deleted_at IS NULL DO UPDATE SET "
                   + ", ".join(f"{c}=EXCLUDED.{c}" for c in cols
                               if c not in ("cnic", "session_id")))
     else:
