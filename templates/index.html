@@ -28,13 +28,15 @@
     </div>
     <p class="field-hint">Enter your 13-digit CNIC, with or without dashes.</p>
     {% if sessions %}
-    <label class="f-label" for="sessionSel" style="margin-top:12px">Test Session</label>
-    <select id="sessionSel" name="session" class="no-icon">
-      {% for s in sessions %}
-      <option value="{{ s.id }}" {{ 'selected' if s.id == active_id else '' }}>{{ s.name }}{% if s.id == active_id %} (latest){% endif %}</option>
-      {% endfor %}
-    </select>
-    <p class="field-hint">The latest session is selected. Pick an older session to see a previous result.</p>
+    <div class="session-field">
+      <label class="f-label" for="sessionSel">Test Session</label>
+      <select id="sessionSel" name="session" class="no-icon">
+        {% for s in sessions %}
+        <option value="{{ s.id }}" {{ 'selected' if s.id == active_id else '' }}>{{ s.name }}{% if s.id == active_id %} (latest){% endif %}</option>
+        {% endfor %}
+      </select>
+      <p class="session-hint">The latest session is selected. Pick an older session to see a previous result.</p>
+    </div>
     {% endif %}
     <button type="submit" class="btn primary block">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
