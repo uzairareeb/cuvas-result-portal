@@ -15,6 +15,13 @@
       <span class="dz-file" id="dzFile"></span>
       <span class="dz-hint">CSV or Excel (.xlsx) &mdash; columns in order: Name, Father's Name, CNIC, <strong>Program (PhD/MPhil)</strong>, Applied Degree, Held On, Total Marks, Obtained Marks. Re-uploading the same CNIC updates that record. <strong>You review every row on a preview screen before anything is saved.</strong></span>
     </label>
+    <label class="f-label" for="sessionName">Test session for this upload</label>
+    <input type="text" class="no-icon" id="sessionName" name="session_name" list="sessionList"
+           value="{{ active_session_name }}" style="margin-bottom:6px">
+    <datalist id="sessionList">
+      {% for s in sessions %}<option value="{{ s.name }}">{% endfor %}
+    </datalist>
+    <p class="field-hint" style="margin:0 0 14px">Keep the current session name to add/update its records. Type a <strong>new</strong> name (e.g. "PhD Entry Test — Spring 2027") to start a new session — it becomes the active one and the old session stays archived; students can still pick it on the portal.</p>
     <div class="row">
       <button type="submit" class="btn primary">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>

@@ -7,12 +7,14 @@
     <span class="section-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></span>
     <h3>Review before saving — {{ filename }}</h3>
   </div>
-  <p class="hint" style="margin:0 0 16px">Nothing has been saved yet. Check the rows below, then Confirm to apply. A backup of the current records is saved automatically before applying.</p>
+  <p class="hint" style="margin:0 0 16px">Nothing has been saved yet. Check the rows below, then Confirm to apply. A backup of the current records is saved automatically before applying.{% if sess_name %} These records go into session <strong>{{ sess_name }}</strong>.{% endif %}</p>
   <div class="stats" style="margin-bottom:18px">
     <div class="stat"><div><div class="n">{{ counts.new_count }}</div><div class="t">New records</div></div></div>
     <div class="stat"><div><div class="n">{{ counts.update_count }}</div><div class="t">Will be updated</div></div></div>
     <div class="stat"><div><div class="n">{{ counts.invalid_count }}</div><div class="t">Invalid — will be skipped</div></div></div>
+    <div class="stat"><div><div class="n">{{ warn_count }}</div><div class="t">Rows with warnings</div></div></div>
   </div>
+  {% if warn_count %}<p class="warn-text" style="margin:0 0 14px"><strong>Warnings do not block saving</strong> — they flag rows worth a second look (marks higher than the total, empty father's name, full/zero marks, same name on another CNIC).</p>{% endif %}
   <div class="table-wrap table-wide">
     <table>
       <thead><tr><th>Row</th><th>Name</th><th>CNIC</th><th>Program</th><th>Degree</th><th>Marks</th><th>Status</th></tr></thead>
@@ -30,6 +32,7 @@
             {% elif d.status == 'update' %}<span class="pill prog">Update</span>
             {% else %}<span class="pill nq">Invalid</span>{% endif %}
             {% if d.reason %}<br><span class="hint">{{ d.reason }}</span>{% endif %}
+            {% if d.warning %}<br><span class="warn-text">⚠ {{ d.warning }}</span>{% endif %}
           </td>
         </tr>
         {% endfor %}

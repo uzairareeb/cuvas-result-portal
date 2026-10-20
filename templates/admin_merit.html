@@ -17,7 +17,14 @@
     </select>
     <button type="submit" class="btn primary sm">Filter</button>
     <span style="margin-left:auto">
-      <a href="{{ url_for('admin_merit_pdf', program=program, degree=degree) }}" class="btn ghost sm">Download Merit List PDF</a>
+      <select name="session" class="no-icon" onchange="this.form.submit()">
+        {% for s in sessions %}
+        <option value="{{ s.id }}" {{ 'selected' if sess_arg == s.id|string else '' }}>{{ s.name }}{% if s.is_active %} (active){% endif %}</option>
+        {% endfor %}
+        <option value="active" {{ 'selected' if sess_arg == 'active' else '' }}>Active session only</option>
+        <option value="all" {{ 'selected' if sess_arg == 'all' else '' }}>All sessions</option>
+      </select>
+      <a href="{{ url_for('admin_merit_pdf', program=program, degree=degree, session=sess_arg) }}" class="btn ghost sm">Download Merit List PDF</a>
     </span>
   </form>
   <p class="hint" style="margin:0 0 12px">Ranked by obtained percentage (highest first). Showing {{ rows|length }} candidate(s).</p>

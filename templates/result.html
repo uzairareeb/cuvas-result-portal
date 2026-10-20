@@ -36,10 +36,17 @@
       </tr>
     </table>
     <p class="rnote">NOTE: This is online generated result card. Errors and Omissions are expected. If you have any query please contact at das@cuvas.edu.pk.</p>
+    <div class="rverify">
+      <img src="{{ url_for('qr_code', cnic=card.cnic_raw, s=card.session_id) }}" alt="QR code to verify this result" width="74" height="74">
+      <div>
+        <strong>Verify this result</strong>
+        <span>Scan the QR code — it opens the official verification page showing this same record.{% if card.session_name %}<br>Test Session: {{ card.session_name }}{% endif %}</span>
+      </div>
+    </div>
     <div class="rfoot">&copy; {{ card.footer_year }} &nbsp; Cholistan University of Veterinary &amp; Animal Sciences, Bahawalpur</div>
   </div>
   <div class="actions">
-    <a class="btn primary" href="{{ url_for('result_pdf', cnic=card.cnic_raw) }}">Download PDF Result Card</a>
+    <a class="btn primary" href="{{ url_for('result_pdf', cnic=card.cnic_raw, s=card.session_id) }}">Download PDF Result Card</a>
     <a class="btn" href="{{ url_for('index') }}">Check Another CNIC</a>
   </div>
 </div>

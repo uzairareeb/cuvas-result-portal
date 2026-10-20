@@ -1,0 +1,47 @@
+{% extends "admin_base.html" %}
+{% block title %}Sessions{% endblock %}
+{% block page_title %}Test Sessions{% endblock %}
+{% block content %}
+<div class="card">
+  <h2 class="card-h">Test Sessions</h2>
+  <p class="hint" style="margin:0 0 16px">Every result belongs to a session (one entry test). The <strong>active</strong> session is what students see by default; older sessions stay archived and students can still select them on the portal. Uploading with a new session name also creates and activates it.</p>
+  <div class="tbl-wrap" style="margin-bottom:20px">
+    <table class="tbl">
+      <thead>
+        <tr><th>Session</th><th>Records</th><th>Created</th><th>Status</th><th style="text-align:right">Actions</th></tr>
+      </thead>
+      <tbody>
+        {% for s in sessions %}
+        <tr>
+          <td><strong>{{ s.name }}</strong></td>
+          <td>{{ s.count }}</td>
+          <td>{{ s.created_at or '—' }}</td>
+          <td>{% if s.is_active %}<span class="pill q">Active</span>{% else %}<span class="pill prog">Archived</span>{% endif %}</td>
+          <td style="text-align:right">
+            {% if not s.is_active %}
+            <form method="post" action="{{ url_for('admin_sessions_activate', sid=s.id) }}" style="display:inline">
+              <button class="btn small" type="submit">Make Active</button>
+            </form>
+            {% endif %}
+            {% if s.count == 0 and not s.is_active %}
+            <form method="post" action="{{ url_for('admin_sessions_delete', sid=s.id) }}" style="display:inline">
+              <button class="btn small danger" type="submit">Delete</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="hint">No sessions yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <form method="post" action="{{ url_for('admin_sessions_create') }}">
+    <label class="f-label" for="newSession">Create a new session</label>
+    <div class="row" style="margin-top:0">
+      <input type="text" class="no-icon" id="newSession" name="name" placeholder="e.g. PhD Entry Test — Spring 2027" style="max-width:340px">
+      <button class="btn primary" type="submit">Create &amp; Activate</button>
+    </div>
+  </form>
+</div>
+{% endblock %}
