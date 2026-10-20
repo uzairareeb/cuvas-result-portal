@@ -9,31 +9,41 @@
   {% if announce.message %}<p class="lede">{{ announce.message }}</p>{% endif %}
   <p class="announce-when">The result will be announced on<br><strong>{{ announce.when_disp }}</strong></p>
   <div class="cd-row" id="cdRow" role="timer" aria-label="Time remaining until the result announcement">
-    <div class="cd-box"><span class="cd-num" id="cdDays">--</span><span class="cd-lab">Days</span></div>
+    <div class="cd-box cd-d"><span class="cd-num" id="cdDays">--</span><span class="cd-lab">Days</span></div>
     <div class="cd-sep">:</div>
-    <div class="cd-box"><span class="cd-num" id="cdHours">--</span><span class="cd-lab">Hours</span></div>
+    <div class="cd-box cd-h"><span class="cd-num" id="cdHours">--</span><span class="cd-lab">Hours</span></div>
     <div class="cd-sep">:</div>
-    <div class="cd-box"><span class="cd-num" id="cdMins">--</span><span class="cd-lab">Minutes</span></div>
+    <div class="cd-box cd-m"><span class="cd-num" id="cdMins">--</span><span class="cd-lab">Minutes</span></div>
+    <div class="cd-sep">:</div>
+    <div class="cd-box cd-s"><span class="cd-num" id="cdSecs">--</span><span class="cd-lab">Seconds</span></div>
   </div>
   <p class="cd-note" id="cdNote">Please visit this page again after the announcement time to check your result.</p>
   <script>
   (function () {
     var target = new Date("{{ announce.iso }}").getTime();
     var dEl = document.getElementById('cdDays'), hEl = document.getElementById('cdHours'),
-        mEl = document.getElementById('cdMins'), note = document.getElementById('cdNote');
+        mEl = document.getElementById('cdMins'), sEl = document.getElementById('cdSecs'),
+        note = document.getElementById('cdNote');
     function pad(n) { return (n < 10 ? '0' : '') + n; }
+    function set(el, v) {
+      if (el.textContent !== v) {
+        el.textContent = v;
+        el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop');
+      }
+    }
     function tick() {
       var diff = target - Date.now();
       if (diff <= 0) {
-        dEl.textContent = '00'; hEl.textContent = '00'; mEl.textContent = '00';
+        dEl.textContent = '00'; hEl.textContent = '00'; mEl.textContent = '00'; sEl.textContent = '00';
         note.textContent = 'The announcement time has arrived. Results will be available very shortly — please check back in a few minutes.';
         return;
       }
-      var mins = Math.floor(diff / 60000);
-      dEl.textContent = pad(Math.floor(mins / 1440));
-      hEl.textContent = pad(Math.floor((mins % 1440) / 60));
-      mEl.textContent = pad(mins % 60);
-      setTimeout(tick, 1000);
+      var secs = Math.floor(diff / 1000);
+      set(dEl, pad(Math.floor(secs / 86400)));
+      set(hEl, pad(Math.floor((secs % 86400) / 3600)));
+      set(mEl, pad(Math.floor((secs % 3600) / 60)));
+      set(sEl, pad(secs % 60));
+      setTimeout(tick, 250);
     }
     tick();
   })();
