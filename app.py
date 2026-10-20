@@ -336,8 +336,15 @@ def build_card(r):
     """Assemble the result-card fields from a candidate record."""
     held = parse_date(r.get("test_date"))
     valid = add_one_year(held) if held else None
-    passing_marks, status = calc_result(r.get("obtained"), r.get("total"),
-                                        program_passing_pct(r.get("program")))
+    pct = program_passing_pct(r.get("program"))
+    passing_marks, status = calc_result(r.get("obtained"), r.get("total"), pct)
+    obtained_s = fmt_num(r.get("obtained"))
+    try:
+        obt_f, tot_f = float(r.get("obtained")), float(r.get("total"))
+        obtained_pct = (fmt_num(round(obt_f / tot_f * 100, 2)) + "%") if tot_f > 0 else ""
+    except (TypeError, ValueError):
+        obtained_pct = ""
+    obtained_display = f"{obtained_s} ({obtained_pct})" if obtained_pct else obtained_s
     return {
         "name": r.get("name", ""),
         "father_name": r.get("father_name", ""),
@@ -346,8 +353,10 @@ def build_card(r):
         "degree": r.get("discipline", ""),
         "held_on": fmt_date(held) if held else (r.get("test_date") or ""),
         "total": fmt_num(r.get("total")),
-        "obtained": fmt_num(r.get("obtained")),
+        "obtained": obtained_s,
+        "obtained_display": obtained_display,
         "passing_marks": passing_marks,
+        "passing_pct": fmt_num(pct) + "%",
         "status": status,
         "valid_till": fmt_date(valid),
         "footer_year": str(valid.year) if valid else str(datetime.now().year),
@@ -483,10 +492,10 @@ def build_pdf(card):
     pairs = [  # (label, label_w, value_w)
         [("Total Marks:", 124, 110), ("Obtained Marks:", 150, 86),
          ("Valid Till:", 100, 130)],
-        [("Passing Marks:", 124, 110), ("Result Status:", 150, 316)],
+        [("Passing %:", 124, 110), ("Result Status:", 150, 316)],
     ]
-    values = {"Total Marks:": card["total"], "Obtained Marks:": card["obtained"],
-              "Valid Till:": card["valid_till"], "Passing Marks:": card["passing_marks"],
+    values = {"Total Marks:": card["total"], "Obtained Marks:": card["obtained_display"],
+              "Valid Till:": card["valid_till"], "Passing %:": card["passing_pct"],
               "Result Status:": card["status"]}
     c.setLineWidth(1)
     for row_i, cells in enumerate(pairs):

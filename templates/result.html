@@ -26,11 +26,11 @@
       </colgroup>
       <tr>
         <td class="lab2">Total Marks:</td><td class="val">{{ card.total }}</td>
-        <td class="lab2">Obtained Marks:</td><td class="val">{{ card.obtained }}</td>
+        <td class="lab2">Obtained Marks:</td><td class="val">{{ card.obtained_display }}</td>
         <td class="lab2">Valid Till:</td><td class="val">{{ card.valid_till }}</td>
       </tr>
       <tr>
-        <td class="lab2">Passing Marks:</td><td class="val">{{ card.passing_marks }}</td>
+        <td class="lab2">Passing %:</td><td class="val">{{ card.passing_pct }}</td>
         <td class="lab2">Result Status:</td>
         <td class="val status-{{ 'q' if card.status == 'Qualified' else 'nq' }}" colspan="3">{{ card.status }}</td>
       </tr>
