@@ -699,12 +699,10 @@ def result(cnic):
         act = active_session()
         sid = act["id"] if act else None
     db = get_db()
+    # Strict: a result is only ever shown from the selected session. A record
+    # in another session must NOT appear here (the student picks that session).
     row = db.fetchone("SELECT * FROM candidates WHERE cnic=? AND session_id=?",
                       (cnic, sid))
-    if not row and sid:
-        # A direct/old link without the right session: fall back to any session.
-        row = db.fetchone("SELECT * FROM candidates WHERE cnic=?"
-                          " ORDER BY session_id DESC", (cnic,))
     try:  # lookup analytics for the admin Lookup Log (never breaks the page)
         db = get_db()
         db.execute("INSERT INTO lookups(ts, cnic, found) VALUES (?, ?, ?)",
@@ -713,7 +711,9 @@ def result(cnic):
     except Exception:
         pass
     if not row:
-        return render_template("notfound.html", uni=UNI_NAME, title=PORTAL_TITLE), 404
+        return render_template("notfound.html", uni=UNI_NAME, title=PORTAL_TITLE,
+                               cnic_disp=fmt_cnic(cnic),
+                               sess_name=session_name(sid) if sid else ""), 404
     r = dict(row)
     card = build_card(r)
     return render_template("result.html", uni=UNI_NAME, short=UNI_SHORT,
@@ -730,9 +730,6 @@ def result_pdf(cnic):
     db = get_db()
     row = db.fetchone("SELECT * FROM candidates WHERE cnic=? AND session_id=?",
                       (cnic, sid))
-    if not row and sid:
-        row = db.fetchone("SELECT * FROM candidates WHERE cnic=?"
-                          " ORDER BY session_id DESC", (cnic,))
     if not row:
         return "Result not found.", 404
     r = dict(row)
@@ -769,9 +766,10 @@ def verify(cnic):
     db = get_db()
     row = None
     if sid:
+        # The QR names its session: verify strictly against that session.
         row = db.fetchone("SELECT * FROM candidates WHERE cnic=? AND session_id=?",
                           (cnic, sid))
-    if not row:
+    else:
         row = db.fetchone("SELECT * FROM candidates WHERE cnic=?"
                           " ORDER BY session_id DESC", (cnic,))
     card = None
@@ -1450,22 +1448,6 @@ def admin_sessions():
         sess.append(s)
     return render_template("admin_sessions.html", uni=UNI_NAME, title=PORTAL_TITLE,
                            active="sessions", sessions=sess)
-
-
-@app.route("/admin/sessions/create", methods=["POST"])
-@admin_required
-def admin_sessions_create():
-    name = (request.form.get("name") or "").strip()
-    if not name:
-        flash("Session name is required.")
-        return redirect(url_for("admin_sessions"))
-    sess, created = get_or_create_session(name)
-    if created:
-        log_audit("Session created", name)
-        flash(f"Session '{name}' created and set active. Upload results into it from Upload Results.")
-    else:
-        flash(f"Session '{name}' already exists.")
-    return redirect(url_for("admin_sessions"))
 
 
 @app.route("/admin/sessions/<int:sid>/activate", methods=["POST"])
