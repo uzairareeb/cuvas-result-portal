@@ -1077,10 +1077,10 @@ def admin_settings():
         phd = float(request.form.get("phd_passing_percent", "60"))
         mphil = float(request.form.get("mphil_passing_percent", "50"))
     except (TypeError, ValueError):
-        flash("Passing percentages must be numbers.")
+        flash("Passing percentages must be numbers.", "err")
         return redirect(url_for("admin_upload_page"))
     if not (1 <= phd <= 100 and 1 <= mphil <= 100):
-        flash("Passing percentages must be between 1 and 100.")
+        flash("Passing percentages must be between 1 and 100.", "err")
         return redirect(url_for("admin_upload_page"))
     set_setting("phd_passing_percent", _clean_pct(phd))
     set_setting("mphil_passing_percent", _clean_pct(mphil))
@@ -1104,13 +1104,13 @@ def admin_password():
         new = request.form.get("new", "")
         confirm = request.form.get("confirm", "")
         if not _password_ok(current):
-            flash("Current password is wrong.")
+            flash("Current password is wrong.", "err")
             return redirect(url_for("admin_password"))
         if len(new) < 6:
-            flash("New password must be at least 6 characters.")
+            flash("New password must be at least 6 characters.", "err")
             return redirect(url_for("admin_password"))
         if new != confirm:
-            flash("New passwords do not match.")
+            flash("New passwords do not match.", "err")
             return redirect(url_for("admin_password"))
         set_setting("admin_password_hash",
                     hashlib.sha256(new.encode("utf-8")).hexdigest())
@@ -1369,7 +1369,7 @@ def admin_edit_student(cid):
     db = get_db()
     row = db.fetchone("SELECT * FROM candidates WHERE id=?", (cid,))
     if not row:
-        flash("Student not found.")
+        flash("Student not found.", "err")
         return redirect(url_for("admin_students"))
     if request.method == "POST":
         name = request.form.get("name", "").strip()
@@ -1382,14 +1382,14 @@ def admin_edit_student(cid):
             total = float(request.form.get("total") or 0)
             obtained = float(request.form.get("obtained") or 0)
         except ValueError:
-            flash("Marks must be numbers.")
+            flash("Marks must be numbers.", "err")
             return redirect(url_for("admin_edit_student", cid=cid))
         if not name or len(cnic) != 13:
-            flash("Name and a valid 13-digit CNIC are required.")
+            flash("Name and a valid 13-digit CNIC are required.", "err")
             return redirect(url_for("admin_edit_student", cid=cid))
         dup = db.fetchone("SELECT id FROM candidates WHERE cnic=? AND id<>?", (cnic, cid))
         if dup:
-            flash("Another student already uses this CNIC.")
+            flash("Another student already uses this CNIC.", "err")
             return redirect(url_for("admin_edit_student", cid=cid))
         db.execute("UPDATE candidates SET name=?, father_name=?, cnic=?, program=?,"
                    " discipline=?, test_date=?, obtained=?, total=? WHERE id=?",
@@ -1419,7 +1419,7 @@ def admin_delete_student(cid):
     db.execute("DELETE FROM candidates WHERE id=?", (cid,))
     db.commit()
     log_audit("Record deleted", label)
-    flash("Student record deleted. A backup was saved under Admin → Backups.")
+    flash("Student record deleted. A backup was saved under Admin → Backups.", "del")
     return redirect(url_for("admin_students"))
 
 
@@ -1431,7 +1431,7 @@ def admin_clear():
     db.execute("DELETE FROM candidates")
     db.commit()
     log_audit("All records deleted", f"{n} record(s) were backed up first")
-    flash("All result records deleted. A backup was saved under Admin → Backups.")
+    flash("All result records deleted. A backup was saved under Admin → Backups.", "del")
     return redirect(url_for("admin_students"))
 
 
@@ -1456,7 +1456,7 @@ def admin_sessions_activate(sid):
     db = get_db()
     row = db.fetchone("SELECT * FROM sessions WHERE id=?", (sid,))
     if not row:
-        flash("Session not found.")
+        flash("Session not found.", "err")
         return redirect(url_for("admin_sessions"))
     db.execute("UPDATE sessions SET is_active=0")
     db.execute("UPDATE sessions SET is_active=1 WHERE id=?", (sid,))
@@ -1473,14 +1473,14 @@ def admin_sessions_delete(sid):
     row = db.fetchone("SELECT COUNT(*) AS c FROM candidates WHERE session_id=?", (sid,))
     n = row["c"] if isinstance(row, dict) else row[0]
     if n:
-        flash("Only empty sessions can be deleted — this one still has records.")
+        flash("Only empty sessions can be deleted — this one still has records.", "err")
         return redirect(url_for("admin_sessions"))
     srow = db.fetchone("SELECT * FROM sessions WHERE id=?", (sid,))
     db.execute("DELETE FROM sessions WHERE id=?", (sid,))
     db.commit()
     if srow:
         log_audit("Session deleted", dict(srow)["name"])
-    flash("Session deleted.")
+    flash("Session deleted.", "del")
     return redirect(url_for("admin_sessions"))
 
 
@@ -1537,7 +1537,7 @@ def admin_backups():
 def admin_backup_download(bid):
     row = get_db().fetchone("SELECT * FROM backups WHERE id=?", (bid,))
     if not row:
-        flash("Backup not found.")
+        flash("Backup not found.", "err")
         return redirect(url_for("admin_backups"))
     buf = io.StringIO()
     w = csv.writer(buf)
@@ -1558,7 +1558,7 @@ def admin_backup_restore(bid):
     db = get_db()
     row = db.fetchone("SELECT * FROM backups WHERE id=?", (bid,))
     if not row:
-        flash("Backup not found.")
+        flash("Backup not found.", "err")
         return redirect(url_for("admin_backups"))
     make_backup(f"Before restoring backup #{bid}")
     recs = json.loads(dict(row)["data"] or "[]")
@@ -1781,7 +1781,7 @@ def admin_students_bulk():
     ids = [int(i) for i in ids if str(i).isdigit()]
     action = request.form.get("action", "")
     if not ids:
-        flash("No records selected.")
+        flash("No records selected.", "err")
         return redirect(url_for("admin_students"))
     db = get_db()
     rows = [dict(r) for r in db.fetchall(
@@ -1799,9 +1799,9 @@ def admin_students_bulk():
                    ids)
         db.commit()
         log_audit("Bulk delete", f"{len(rows)} record(s)")
-        flash(f"{len(rows)} record(s) deleted. A backup was saved under Admin → Backups.")
+        flash(f"{len(rows)} record(s) deleted. A backup was saved under Admin → Backups.", "del")
         return redirect(url_for("admin_students"))
-    flash("Unknown bulk action.")
+    flash("Unknown bulk action.", "err")
     return redirect(url_for("admin_students"))
 
 
@@ -1837,20 +1837,20 @@ def read_upload(file_storage):
 def admin_upload():
     file = request.files.get("file")
     if not file or not file.filename:
-        flash("Please choose a file to upload.")
+        flash("Please choose a file to upload.", "err")
         return redirect(url_for("admin_upload_page"))
     ext = file.filename.rsplit(".", 1)[-1].lower()
     if ext not in ALLOWED_EXT:
-        flash("Only CSV or Excel (.xlsx/.xls) files are allowed.")
+        flash("Only CSV or Excel (.xlsx/.xls) files are allowed.", "err")
         return redirect(url_for("admin_upload_page"))
 
     try:
         raw_rows = read_upload(file)
     except Exception as e:
-        flash(f"Could not read file: {e}")
+        flash(f"Could not read file: {e}", "err")
         return redirect(url_for("admin_upload_page"))
     if not raw_rows:
-        flash("No data rows found in the file.")
+        flash("No data rows found in the file.", "err")
         return redirect(url_for("admin_upload_page"))
 
     first = raw_rows[0]
@@ -1861,7 +1861,7 @@ def admin_upload():
             mapping[hdr] = k
 
     if "name" not in mapping.values() or "cnic" not in mapping.values():
-        flash("File must contain at least a Name column and a CNIC column.")
+        flash("File must contain at least a Name column and a CNIC column.", "err")
         return redirect(url_for("admin_upload_page"))
 
     # Stage every row first — nothing is saved until the admin reviews the
@@ -1957,7 +1957,7 @@ def admin_upload():
 def admin_upload_preview():
     batch = session.get("upload_batch")
     if not batch:
-        flash("No upload is waiting for review.")
+        flash("No upload is waiting for review.", "err")
         return redirect(url_for("admin_upload_page"))
     db = get_db()
     rows = []
@@ -1984,7 +1984,7 @@ def admin_upload_preview():
 def admin_upload_confirm():
     batch = session.get("upload_batch")
     if not batch:
-        flash("No upload is waiting for review.")
+        flash("No upload is waiting for review.", "err")
         return redirect(url_for("admin_upload_page"))
     db = get_db()
     staged = db.fetchall("SELECT * FROM upload_staging WHERE batch=? ORDER BY row_no",
@@ -2050,7 +2050,7 @@ def admin_upload_cancel():
     session.pop("upload_batch", None)
     session.pop("upload_file", None)
     session.pop("upload_session", None)
-    flash("Upload cancelled — nothing was saved.")
+    flash("Upload cancelled — nothing was saved.", "err")
     return redirect(url_for("admin_upload_page"))
 
 
