@@ -1,0 +1,48 @@
+{% extends "admin_base.html" %}
+{% block title %}Review Upload{% endblock %}
+{% block page_title %}Review Upload{% endblock %}
+{% block content %}
+<div class="card section">
+  <div class="section-head">
+    <span class="section-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></span>
+    <h3>Review before saving — {{ filename }}</h3>
+  </div>
+  <p class="hint" style="margin:0 0 16px">Nothing has been saved yet. Check the rows below, then Confirm to apply. A backup of the current records is saved automatically before applying.</p>
+  <div class="stats" style="margin-bottom:18px">
+    <div class="stat"><div><div class="n">{{ counts.new_count }}</div><div class="t">New records</div></div></div>
+    <div class="stat"><div><div class="n">{{ counts.update_count }}</div><div class="t">Will be updated</div></div></div>
+    <div class="stat"><div><div class="n">{{ counts.invalid_count }}</div><div class="t">Invalid — will be skipped</div></div></div>
+  </div>
+  <div class="table-wrap table-wide">
+    <table>
+      <thead><tr><th>Row</th><th>Name</th><th>CNIC</th><th>Program</th><th>Degree</th><th>Marks</th><th>Status</th></tr></thead>
+      <tbody>
+        {% for d in rows %}
+        <tr>
+          <td>{{ d.row_no }}</td>
+          <td><strong>{{ d.rec.name or '—' }}</strong></td>
+          <td>{{ d.rec.cnic or '—' }}</td>
+          <td><span class="pill prog">{{ d.rec.program or 'PhD' }}</span></td>
+          <td>{{ d.rec.discipline or '' }}</td>
+          <td>{{ d.rec.obtained or '' }} / {{ d.rec.total or '' }}</td>
+          <td>
+            {% if d.status == 'new' %}<span class="pill q">New</span>
+            {% elif d.status == 'update' %}<span class="pill prog">Update</span>
+            {% else %}<span class="pill nq">Invalid</span>{% endif %}
+            {% if d.reason %}<br><span class="hint">{{ d.reason }}</span>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div style="display:flex;gap:10px;margin-top:18px;flex-wrap:wrap">
+    <form method="post" action="{{ url_for('admin_upload_confirm') }}">
+      <button type="submit" class="btn primary">Confirm — Save {{ counts.new_count + counts.update_count }} record(s)</button>
+    </form>
+    <form method="post" action="{{ url_for('admin_upload_cancel') }}">
+      <button type="submit" class="btn ghost">Cancel upload</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

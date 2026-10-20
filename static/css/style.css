@@ -373,3 +373,21 @@ form .grid2 { margin-bottom: 16px; }
   .rhead { flex-direction: column; text-align: center; }
   .page-head { flex-direction: column; align-items: flex-start; }
 }
+
+/* ---------- admin: charts, donut, bulk bar ---------- */
+.donut-flex { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; }
+.donut { flex: none; }
+.donut-num { font-size: 26px; font-weight: 800; fill: #1a1f36; }
+.donut-lab { font-size: 11px; fill: #667085; }
+.donut-legend p { margin: 0 0 7px; font-size: 14px; color: #1a1f36; }
+.dot { display: inline-block; width: 11px; height: 11px; border-radius: 50%; background: #c9cef0; margin-right: 8px; }
+.dot.ok { background: #12805c; }
+.dot.bad { background: #b3261e; }
+.bar-row { margin-bottom: 14px; }
+.bar-row:last-child { margin-bottom: 0; }
+.bar-head { display: flex; justify-content: space-between; gap: 10px; font-size: 13.5px; font-weight: 600; color: #1a1f36; margin-bottom: 5px; }
+.bar-track { height: 9px; background: #eef0fb; border-radius: 99px; overflow: hidden; }
+.bar-fill { height: 100%; background: #2d3290; border-radius: 99px; }
+.bar-fill.ok { background: #12805c; }
+.bulk-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 12px;
+  background: #fbfbfe; border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; }

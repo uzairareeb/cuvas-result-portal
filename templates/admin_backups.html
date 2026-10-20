@@ -1,0 +1,38 @@
+{% extends "admin_base.html" %}
+{% block title %}Backups{% endblock %}
+{% block page_title %}Backups{% endblock %}
+{% block content %}
+<div class="card section">
+  <div class="section-head">
+    <span class="section-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg></span>
+    <h3>Record backups</h3>
+  </div>
+  <p class="hint" style="margin:0 0 14px">A backup is saved automatically before every upload, delete, bulk delete and restore. Restoring replaces ALL current records with the backup's records (a fresh backup of the current state is saved first).</p>
+  {% if rows %}
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>#</th><th>Saved at</th><th>Reason</th><th>Records</th><th style="text-align:right">Actions</th></tr></thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td>{{ r.id }}</td>
+          <td style="white-space:nowrap">{{ r.ts }}</td>
+          <td>{{ r.reason }}</td>
+          <td>{{ r.count }}</td>
+          <td style="text-align:right;white-space:nowrap">
+            <a class="btn ghost sm" href="{{ url_for('admin_backup_download', bid=r.id) }}">Download CSV</a>
+            <form method="post" action="{{ url_for('admin_backup_restore', bid=r.id) }}" style="display:inline"
+                  onsubmit="return confirm('Restore backup #{{ r.id }}? This replaces ALL current records.')">
+              <button type="submit" class="btn danger sm">Restore</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty"><p>No backups yet. The first one is created automatically before your next upload or delete.</p></div>
+  {% endif %}
+</div>
+{% endblock %}

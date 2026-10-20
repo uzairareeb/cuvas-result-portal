@@ -1,0 +1,57 @@
+{% extends "admin_base.html" %}
+{% block title %}Lookup Log{% endblock %}
+{% block page_title %}Lookup Log{% endblock %}
+{% block content %}
+<div class="stats" style="margin-bottom:18px">
+  <div class="stat"><div><div class="n">{{ total }}</div><div class="t">Total result lookups</div></div></div>
+  <div class="stat"><div><div class="n">{{ total - fails }}</div><div class="t">Result found</div></div></div>
+  <div class="stat"><div><div class="n">{{ fails }}</div><div class="t">Result not found</div></div></div>
+</div>
+<div class="grid2">
+  <div class="card section">
+    <div class="section-head">
+      <span class="section-icon bad"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></span>
+      <h3>Most failed CNICs</h3>
+    </div>
+    <p class="hint" style="margin:0 0 12px">CNICs students searched for but no record exists. Repeated failures often mean a data-entry mistake in the uploaded list — or a mistyped CNIC by the student.</p>
+    {% if top %}
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>CNIC</th><th>Attempts</th><th>Last tried</th></tr></thead>
+        <tbody>
+          {% for r in top %}
+          <tr><td>{{ r.cnic }}</td><td>{{ r.tries }}</td><td>{{ r.last }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty"><p>No failed lookups yet.</p></div>
+    {% endif %}
+  </div>
+  <div class="card section">
+    <div class="section-head">
+      <span class="section-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span>
+      <h3>Recent lookups</h3>
+    </div>
+    {% if recent %}
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Time</th><th>CNIC</th><th>Outcome</th></tr></thead>
+        <tbody>
+          {% for r in recent %}
+          <tr>
+            <td style="white-space:nowrap">{{ r.ts }}</td>
+            <td>{{ r.cnic }}</td>
+            <td>{% if r.found %}<span class="pill q">Found</span>{% else %}<span class="pill nq">Not found</span>{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty"><p>No lookups recorded yet.</p></div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

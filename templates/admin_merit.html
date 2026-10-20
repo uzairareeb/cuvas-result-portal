@@ -1,0 +1,49 @@
+{% extends "admin_base.html" %}
+{% block title %}Merit List{% endblock %}
+{% block page_title %}Merit List{% endblock %}
+{% block content %}
+<div class="card section">
+  <form method="get" action="{{ url_for('admin_merit') }}" class="filters">
+    <select name="program" class="no-icon">
+      <option value="all" {{ 'selected' if program == 'all' else '' }}>All Programs</option>
+      <option value="PhD" {{ 'selected' if program == 'PhD' else '' }}>PhD</option>
+      <option value="MPhil" {{ 'selected' if program == 'MPhil' else '' }}>MPhil</option>
+    </select>
+    <select name="degree" class="no-icon">
+      <option value="all" {{ 'selected' if degree == 'all' else '' }}>All Degrees</option>
+      {% for d in degrees %}
+      <option value="{{ d }}" {{ 'selected' if degree == d else '' }}>{{ d }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="btn primary sm">Filter</button>
+    <span style="margin-left:auto">
+      <a href="{{ url_for('admin_merit_pdf', program=program, degree=degree) }}" class="btn ghost sm">Download Merit List PDF</a>
+    </span>
+  </form>
+  <p class="hint" style="margin:0 0 12px">Ranked by obtained percentage (highest first). Showing {{ rows|length }} candidate(s).</p>
+  {% if rows %}
+  <div class="table-wrap table-wide">
+    <table>
+      <thead><tr><th>Rank</th><th>Merit No</th><th>Name</th><th>CNIC</th><th>Program</th><th>Applied Degree</th><th>Marks</th><th>%</th><th>Status</th></tr></thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td><strong>{{ r.rank }}</strong></td>
+          <td>{{ r.merit_no or '—' }}</td>
+          <td><strong>{{ r.name }}</strong><br><span class="hint">{{ r.father_name }}</span></td>
+          <td>{{ r.cnic }}</td>
+          <td><span class="pill prog">{{ r.program }}</span></td>
+          <td>{{ r.discipline }}</td>
+          <td>{{ r.obtained }} / {{ r.total }}</td>
+          <td><strong>{{ ('%g' % r.pct) + '%' if r.pct is not none else '—' }}</strong></td>
+          <td>{% if r.status == 'Qualified' %}<span class="pill q">Qualified</span>{% else %}<span class="pill nq">Not Qualified</span>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty"><p>No candidates match. Upload results first.</p></div>
+  {% endif %}
+</div>
+{% endblock %}

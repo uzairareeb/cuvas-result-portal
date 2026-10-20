@@ -32,12 +32,88 @@
 <div class="grid2">
   <div class="card section">
     <div class="section-head">
+      <span class="section-icon ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></svg></span>
+      <h3>Overall Pass Rate</h3>
+    </div>
+    <div class="donut-flex">
+      <svg class="donut" viewBox="0 0 130 130" width="130" height="130" role="img" aria-label="Pass rate {{ pass_rate }}%">
+        <circle cx="65" cy="65" r="52" fill="none" stroke="#eef0fb" stroke-width="15"/>
+        <circle cx="65" cy="65" r="52" fill="none" stroke="#12805c" stroke-width="15" stroke-linecap="round"
+                stroke-dasharray="{{ donut_dash }} 326.7" transform="rotate(-90 65 65)"/>
+        <text x="65" y="62" text-anchor="middle" class="donut-num">{{ pass_rate }}%</text>
+        <text x="65" y="82" text-anchor="middle" class="donut-lab">qualified</text>
+      </svg>
+      <div class="donut-legend">
+        <p><span class="dot ok"></span>Qualified — <strong>{{ qcount }}</strong></p>
+        <p><span class="dot bad"></span>Not Qualified — <strong>{{ nqcount }}</strong></p>
+        <p><span class="dot"></span>Total students — <strong>{{ total }}</strong></p>
+        <p class="hint" style="margin-top:10px">Students checked results <strong>{{ lk_total }}</strong> time(s); <strong>{{ lk_fails }}</strong> lookup(s) found no record. <a href="{{ url_for('admin_lookups') }}">Lookup Log</a></p>
+      </div>
+    </div>
+  </div>
+  <div class="card section">
+    <div class="section-head">
+      <span class="section-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></span>
+      <h3>Degree-wise Pass Rate</h3>
+    </div>
+    {% if disc_stats %}
+      {% for s in disc_stats %}
+      <div class="bar-row">
+        <div class="bar-head"><span>{{ s.degree }}</span><span class="hint">{{ s.qualified }}/{{ s.total }} — {{ s.rate }}%</span></div>
+        <div class="bar-track"><div class="bar-fill ok" style="width:{{ s.rate }}%"></div></div>
+      </div>
+      {% endfor %}
+    {% else %}
+      <div class="empty"><p>No records yet.</p></div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="grid2">
+  <div class="card section">
+    <div class="section-head">
+      <span class="section-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/></svg></span>
+      <h3>Marks Distribution (obtained %)</h3>
+    </div>
+    {% for d in dist %}
+    <div class="bar-row">
+      <div class="bar-head"><span>{{ d.label }}</span><span class="hint">{{ d.count }} student(s)</span></div>
+      <div class="bar-track"><div class="bar-fill" style="width:{{ d.width }}%"></div></div>
+    </div>
+    {% endfor %}
+  </div>
+  <div class="card section">
+    <div class="section-head">
+      <span class="section-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="6"/><path d="M15.5 13l1.5 8-5-3-5 3 1.5-8"/></svg></span>
+      <h3>Top Scorers</h3>
+    </div>
+    {% if top_scorers %}
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>#</th><th>Name</th><th>Program</th><th>Marks</th><th>%</th></tr></thead>
+        <tbody>
+          {% for r in top_scorers %}
+          <tr><td>{{ loop.index }}</td><td><strong>{{ r.name }}</strong></td><td><span class="pill prog">{{ r.program }}</span></td><td>{{ r.obtained }} / {{ r.total }}</td><td><strong>{{ ('%g' % r.pct) }}%</strong></td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="hint" style="margin:12px 0 0">Full ranked list: <a href="{{ url_for('admin_merit') }}">Merit List</a></p>
+    {% else %}
+    <div class="empty"><p>No records yet.</p></div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="grid2">
+  <div class="card section">
+    <div class="section-head">
       <span class="section-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></span>
       <h3>Program-wise Results</h3>
     </div>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Program</th><th>Students</th><th>Qualified</th><th>Pass %</th><th>Passing Marks</th></tr></thead>
+        <thead><tr><th>Program</th><th>Students</th><th>Qualified</th><th>Pass %</th><th>Passing %</th></tr></thead>
         <tbody>
           {% for b in breakdown %}
           <tr>

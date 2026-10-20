@@ -1,0 +1,25 @@
+{% extends "admin_base.html" %}
+{% block title %}Activity Log{% endblock %}
+{% block page_title %}Activity Log{% endblock %}
+{% block content %}
+<div class="card section">
+  <div class="section-head">
+    <span class="section-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v4l3 2"/><circle cx="12" cy="12" r="10"/></svg></span>
+    <h3>Recent admin activity</h3>
+  </div>
+  {% if rows %}
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Time</th><th>Action</th><th>Details</th></tr></thead>
+      <tbody>
+        {% for r in rows %}
+        <tr><td style="white-space:nowrap">{{ r.ts }}</td><td><strong>{{ r.action }}</strong></td><td>{{ r.detail or '' }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty"><p>No activity recorded yet.</p></div>
+  {% endif %}
+</div>
+{% endblock %}
