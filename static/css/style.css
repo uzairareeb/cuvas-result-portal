@@ -255,10 +255,10 @@ tbody tr:hover { background: #fafbff; }
 
 /* ---------- result page: Qualified celebration ---------- */
 #confettiCanvas { position: fixed; inset: 0; z-index: 300; pointer-events: none; }
-.celebrate-toast { position: fixed; top: 18px; left: 50%; transform: translate(-50%, -16px); z-index: 310;
+.celebrate-toast { position: fixed; top: 18px; left: 50%; transform: translate(-50%, 0); z-index: 310;
   display: flex; align-items: center; gap: 12px; background: #fff; border: 1px solid var(--ok);
   border-radius: 14px; box-shadow: 0 14px 40px rgba(18,128,92,.25); padding: 12px 14px 12px 12px;
-  max-width: calc(100vw - 32px); opacity: 0; animation: ct-in .5s cubic-bezier(.2,1.4,.4,1) .15s both;
+  max-width: calc(100vw - 32px); opacity: 1; animation: ct-in .5s cubic-bezier(.2,1.4,.4,1) .15s backwards;
   transition: opacity .4s ease, transform .4s ease; }
 @keyframes ct-in { from { opacity: 0; transform: translate(-50%, -16px) scale(.94); } to { opacity: 1; transform: translate(-50%, 0) scale(1); } }
 .celebrate-toast.ct-hide { opacity: 0; transform: translate(-50%, -14px); pointer-events: none; }
@@ -271,6 +271,10 @@ tbody tr:hover { background: #fafbff; }
 .ct-close { flex: none; background: none; border: none; color: var(--muted); font-size: 20px; line-height: 1;
   cursor: pointer; padding: 2px 4px; }
 .ct-close:hover { color: var(--ink); }
+@media (prefers-reduced-motion: reduce) {
+  .celebrate-toast { animation: none; }
+  #confettiCanvas { display: none; }
+}
 
 /* ---------- student portal: announcement banners ---------- */
 .notices { display: flex; flex-direction: column; gap: 10px; margin-bottom: 22px; text-align: left; }

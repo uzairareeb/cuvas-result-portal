@@ -52,14 +52,15 @@
 <canvas id="confettiCanvas" aria-hidden="true"></canvas>
 <script>
 (function () {
-  /* Skip the celebration for users who prefer reduced motion. */
-  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-
+  /* Toast hide wiring always runs, even for reduced-motion users. */
   var toast = document.getElementById('celebrateToast');
   document.getElementById('celebrateClose').addEventListener('click', function () {
     toast.classList.add('ct-hide');
   });
   setTimeout(function () { toast.classList.add('ct-hide'); }, 6000);
+
+  /* Skip only the confetti for users who prefer reduced motion. */
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
 
   var canvas = document.getElementById('confettiCanvas');
   var ctx = canvas.getContext('2d');
