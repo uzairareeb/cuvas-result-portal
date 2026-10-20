@@ -1436,28 +1436,11 @@ def admin_clear():
 
 
 # ---------------- admin: one-page summary report (PDF) ----------------
-@app.route("/admin/summary-pdf")
-@admin_required
-def admin_summary_pdf():
-    """One-page, print-ready summary of a whole entry test for the office file:
-    KPIs, program split, degree-wise table, marks snapshot and top scorers."""
+def build_summary_pdf(rows, sess_name):
+    """One-page summary report PDF as a BytesIO (route + archives)."""
     from reportlab.lib.pagesizes import A4
     from reportlab.lib import colors
     from reportlab.pdfgen import canvas as rl_canvas
-
-    sid = _session_arg_id()
-    act = active_session()
-    sess_row = None
-    for s in get_sessions():
-        if s["id"] == sid:
-            sess_row = s
-    sess_name = sess_row["name"] if sess_row else (act["name"] if act else "")
-    db = get_db()
-    if sid:
-        rows = [dict(r) for r in db.fetchall(
-            "SELECT * FROM candidates WHERE session_id=?", (sid,))]
-    else:
-        rows = [dict(r) for r in db.fetchall("SELECT * FROM candidates")]
     for r in rows:
         r["program"] = r.get("program") or "PhD"
         _, r["status"] = calc_result(r.get("obtained"), r.get("total"),
@@ -1674,7 +1657,33 @@ def admin_summary_pdf():
     c.showPage()
     c.save()
     buf.seek(0)
-    log_audit("Summary report downloaded", f"session '{sess_name}' — {total} record(s)")
+    return buf
+
+
+@app.route("/admin/summary-pdf")
+@admin_required
+def admin_summary_pdf():
+    """One-page, print-ready summary of a whole entry test for the office file:
+    KPIs, program split, degree-wise table, marks snapshot and top scorers."""
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib import colors
+    from reportlab.pdfgen import canvas as rl_canvas
+
+    sid = _session_arg_id()
+    act = active_session()
+    sess_row = None
+    for s in get_sessions():
+        if s["id"] == sid:
+            sess_row = s
+    sess_name = sess_row["name"] if sess_row else (act["name"] if act else "")
+    db = get_db()
+    if sid:
+        rows = [dict(r) for r in db.fetchall(
+            "SELECT * FROM candidates WHERE session_id=?", (sid,))]
+    else:
+        rows = [dict(r) for r in db.fetchall("SELECT * FROM candidates")]
+    buf = build_summary_pdf(rows, sess_name)
+    log_audit("Summary report downloaded", f"session '{sess_name}' — {len(rows)} record(s)")
     fname = "CUVAS_Summary_Report_" + re.sub(r"[^A-Za-z0-9]+", "_", sess_name).strip("_") + ".pdf"
     return send_file(buf, mimetype="application/pdf", as_attachment=True,
                      download_name=fname)
@@ -1727,6 +1736,53 @@ def admin_sessions_delete(sid):
         log_audit("Session deleted", dict(srow)["name"])
     flash("Session deleted.", "del")
     return redirect(url_for("admin_sessions"))
+
+
+@app.route("/admin/sessions/<int:sid>/archive")
+@admin_required
+def admin_sessions_archive(sid):
+    """Download the WHOLE session as one ZIP for permanent record keeping:
+    students.xlsx, merit-list.pdf, summary-report.pdf and one PDF result
+    card per candidate, plus a README."""
+    import zipfile
+    db = get_db()
+    srow = db.fetchone("SELECT * FROM sessions WHERE id=?", (sid,))
+    if not srow:
+        flash("Session not found.", "err")
+        return redirect(url_for("admin_sessions"))
+    sess_name = dict(srow)["name"]
+    rows = [dict(r) for r in db.fetchall(
+        "SELECT * FROM candidates WHERE session_id=? ORDER BY name", (sid,))]
+    xrows = _filtered_students("", "all", "all", "all", session_id=sid)
+    mrows = _merit_rows("all", "all", session_id=sid)
+    zipbuf = io.BytesIO()
+    with zipfile.ZipFile(zipbuf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("students.xlsx", _xlsx_buf(xrows).getvalue())
+        z.writestr("merit-list.pdf",
+                   build_merit_pdf(mrows, "all", "all", sess_name).getvalue())
+        z.writestr("summary-report.pdf",
+                   build_summary_pdf([dict(r) for r in rows], sess_name).getvalue())
+        for r in rows:
+            card = build_card(dict(r))
+            safe = re.sub(r"[^A-Za-z0-9]+", "_", r.get("name") or "student").strip("_")
+            z.writestr(f"result-cards/{r.get('cnic')}_{safe}.pdf",
+                       build_pdf(card).getvalue())
+        z.writestr("README.txt",
+                   "CUVAS Entry Test — Session Archive\n"
+                   f"Session: {sess_name}\n"
+                   f"Generated: {datetime.now().strftime('%d %b %Y, %I:%M %p')}\n"
+                   f"Records: {len(rows)}\n\n"
+                   "Contents:\n"
+                   "- students.xlsx — all records of this session\n"
+                   "- merit-list.pdf — merit list of this session\n"
+                   "- summary-report.pdf — one-page summary report\n"
+                   "- result-cards/ — one PDF result card per candidate\n")
+    zipbuf.seek(0)
+    log_audit("Session archive downloaded", f"'{sess_name}' — {len(rows)} record(s)")
+    fname = ("CUVAS_Session_Archive_"
+             + re.sub(r"[^A-Za-z0-9]+", "_", sess_name).strip("_") + ".zip")
+    return send_file(zipbuf, mimetype="application/zip", as_attachment=True,
+                     download_name=fname)
 
 
 # ---------------- admin: global quick search ----------------
@@ -1870,10 +1926,8 @@ def admin_merit():
                            sess_arg=request.args.get("session", "active"))
 
 
-@app.route("/admin/merit-pdf")
-@admin_required
-def admin_merit_pdf():
-    """Printable merit list (sorted by obtained percentage), PDF."""
+def build_merit_pdf(rows, program="all", degree="all", sess_name=""):
+    """Merit list PDF as a BytesIO (shared by the route + session archives)."""
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4, landscape
     from reportlab.lib.units import mm
@@ -1881,10 +1935,6 @@ def admin_merit_pdf():
     from reportlab.lib.enums import TA_LEFT
     from reportlab.platypus import (SimpleDocTemplate, Table, TableStyle,
                                     Paragraph, Spacer, Image as RLImage)
-
-    program = request.args.get("program", "all")
-    degree = request.args.get("degree", "all")
-    rows = _merit_rows(program, degree, session_id=_session_arg_id())
 
     INDIGO = colors.HexColor("#2d3290")
     DARK = colors.HexColor("#1a1f36")
@@ -1921,6 +1971,8 @@ def admin_merit_pdf():
             title_style))
         story.append(Paragraph("Entry Test — Merit List", sub_style))
     bits = []
+    if sess_name:
+        bits.append(f"Session: <b>{sess_name}</b>")
     if program != "all":
         bits.append(f"Program: <b>{program}</b>")
     if degree != "all":
@@ -1976,13 +2028,29 @@ def admin_merit_pdf():
 
     doc.build(story, onFirstPage=_footer, onLaterPages=_footer)
     buf.seek(0)
+    return buf
+
+
+@app.route("/admin/merit-pdf")
+@admin_required
+def admin_merit_pdf():
+    """Printable merit list (sorted by obtained percentage), PDF."""
+    program = request.args.get("program", "all")
+    degree = request.args.get("degree", "all")
+    rows = _merit_rows(program, degree, session_id=_session_arg_id())
+    buf = build_merit_pdf(rows, program, degree)
     return send_file(buf, as_attachment=True,
                      download_name="cuvas_merit_list.pdf",
                      mimetype="application/pdf")
 
 
 # ---------------- admin: bulk actions on student records ----------------
-def _xlsx_response(rows, filename):
+def _xlsx_buf(rows):
+    """Students workbook as a BytesIO (shared by the export route + archives)."""
+    return _xlsx_response(rows, "export.xlsx", _buf_only=True)
+
+
+def _xlsx_response(rows, filename, _buf_only=False):
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment
     wb = Workbook()
@@ -2014,6 +2082,8 @@ def _xlsx_response(rows, filename):
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
+    if _buf_only:
+        return buf
     return send_file(
         buf, as_attachment=True, download_name=filename,
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")

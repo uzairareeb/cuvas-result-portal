@@ -18,6 +18,7 @@
           <td>{{ s.created_at or '—' }}</td>
           <td>{% if s.is_active %}<span class="pill q">Active</span>{% else %}<span class="pill prog">Archived</span>{% endif %}</td>
           <td style="text-align:right">
+            <a class="btn small ghost" href="{{ url_for('admin_sessions_archive', sid=s.id) }}" title="Download the whole session (Excel + merit list + summary report + all result cards) as one ZIP">Archive ZIP</a>
             {% if not s.is_active %}
             <form method="post" action="{{ url_for('admin_sessions_activate', sid=s.id) }}" style="display:inline">
               <button class="btn small" type="submit" data-confirm="Make '{{ s.name }}' the active session? Students will see this session selected by default on the portal." data-confirm-title="Change active session?" data-confirm-yes="Yes, Make Active">Make Active</button>
