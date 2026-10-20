@@ -53,14 +53,31 @@
 <div class="loader-overlay" id="loaderOverlay" aria-hidden="true">
   <div class="loader-box" role="dialog" aria-modal="true" aria-labelledby="loaderTitle">
     <div id="searchState">
-      <div class="scan-wrap">
-        <span class="scan-ring r1"></span><span class="scan-ring r2"></span><span class="scan-ring r3"></span>
-        <img class="loader-logo" src="{{ url_for('static', filename='img/cuvas-logo.png') }}" alt="CUVAS">
+      <div class="vfy-card">
+        <div class="vfy-beam"></div>
+        <div class="vfy-head">
+          <span class="vfy-logo-ring">
+            <svg class="vfy-ring" viewBox="0 0 64 64" aria-hidden="true">
+              <circle class="ring-bg" cx="32" cy="32" r="29"></circle>
+              <circle class="ring-fg" id="ringFg" cx="32" cy="32" r="29"></circle>
+            </svg>
+            <img class="vfy-logo" src="{{ url_for('static', filename='img/cuvas-logo.png') }}" alt="CUVAS">
+          </span>
+          <div class="vfy-head-text">
+            <p class="loader-title" id="loaderTitle">Searching Your Result</p>
+            <p class="vfy-pct"><span id="loaderPct">0%</span> complete &mdash; please wait</p>
+          </div>
+        </div>
+        <ul class="vfy-steps" id="vfySteps">
+          <li class="vfy-step"><span class="vfy-ico"><svg class="vfy-spin" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle></svg><svg class="vfy-check" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></span><span class="vfy-label">CNIC verification</span><span class="vfy-state">Waiting</span></li>
+          <li class="vfy-step"><span class="vfy-ico"><svg class="vfy-spin" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle></svg><svg class="vfy-check" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></span><span class="vfy-label">Secure database connection</span><span class="vfy-state">Waiting</span></li>
+          <li class="vfy-step"><span class="vfy-ico"><svg class="vfy-spin" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle></svg><svg class="vfy-check" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></span><span class="vfy-label">Record search</span><span class="vfy-state">Waiting</span></li>
+          <li class="vfy-step"><span class="vfy-ico"><svg class="vfy-spin" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle></svg><svg class="vfy-check" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></span><span class="vfy-label">Result retrieval</span><span class="vfy-state">Waiting</span></li>
+          <li class="vfy-step"><span class="vfy-ico"><svg class="vfy-spin" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle></svg><svg class="vfy-check" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></span><span class="vfy-label">Result card preparation</span><span class="vfy-state">Waiting</span></li>
+        </ul>
+        <div class="loader-track"><div class="loader-bar" id="loaderBar"></div></div>
+        <p class="loader-msg" id="loaderMsg">Verifying your CNIC&hellip;</p>
       </div>
-      <p class="loader-title" id="loaderTitle">Searching Your Result</p>
-      <p class="loader-msg" id="loaderMsg">Verifying your CNIC&hellip;</p>
-      <div class="loader-track"><div class="loader-bar" id="loaderBar"></div></div>
-      <p class="loader-pct"><span id="loaderPct">0%</span> &mdash; please wait</p>
       <button type="button" class="loader-cancel" id="loaderCancel">Cancel</button>
     </div>
     <div id="foundState" class="result-state" hidden>
@@ -121,12 +138,28 @@
   var timers = [], raf = null, running = false, cancelled = false;
   var resultUrl = null, fetchDone = false, timeDone = false, found = false;
 
+  /* verification checklist steps + progress ring */
+  var ring = document.getElementById('ringFg');
+  var stepEls = document.querySelectorAll('.vfy-step');
+  var RING_LEN = 182.2;
+  function markStep(i, mode) {
+    var li = stepEls[i];
+    if (!li) return;
+    li.classList.remove('active', 'done');
+    if (mode) li.classList.add(mode);
+    li.querySelector('.vfy-state').textContent =
+      mode === 'done' ? 'Done' : mode === 'active' ? 'Checking' : 'Waiting';
+  }
+  function resetSteps() { for (var i = 0; i < stepEls.length; i++) markStep(i, ''); }
+  function completeSteps() { for (var i = 0; i < stepEls.length; i++) markStep(i, 'done'); }
+
   function setMsg(html) {
     msg.style.opacity = 0;
     setTimeout(function () { msg.innerHTML = html; msg.style.opacity = 1; }, 220);
   }
   function showOutcome() {
     if (cancelled || !running || !fetchDone || !timeDone) return;
+    completeSteps();
     searchState.hidden = true;
     if (found) { foundState.hidden = false; document.getElementById('foundOk').focus(); }
     else { notfoundState.hidden = false; document.getElementById('notfoundOk').focus(); }
@@ -163,6 +196,8 @@
     btn.disabled = true;
     searchState.hidden = false; foundState.hidden = true; notfoundState.hidden = true;
     bar.style.width = '0%'; pct.textContent = '0%';
+    if (ring) ring.style.strokeDashoffset = RING_LEN;
+    resetSteps(); markStep(0, 'active');
     msg.innerHTML = STAGES[0]; msg.style.opacity = 1;
     overlay.classList.add('show');
     overlay.setAttribute('aria-hidden', 'false');
@@ -172,7 +207,11 @@
       .catch(function () { found = false; })
       .then(function () { fetchDone = true; showOutcome(); });
     STAGES.forEach(function (s, i) {
-      timers.push(setTimeout(function () { if (i > 0) setMsg(s); }, i * (DURATION / STAGES.length)));
+      timers.push(setTimeout(function () {
+        if (i > 0) setMsg(s);
+        for (var j = 0; j < i; j++) markStep(j, 'done');
+        markStep(i, 'active');
+      }, i * (DURATION / STAGES.length)));
     });
     var start = null;
     function tick(ts) {
@@ -181,6 +220,7 @@
       var eased = 1 - Math.pow(1 - p, 2.2); /* fast start, gentle finish */
       bar.style.width = (eased * 100).toFixed(1) + '%';
       pct.textContent = Math.round(eased * 100) + '%';
+      if (ring) ring.style.strokeDashoffset = (RING_LEN * (1 - eased)).toFixed(1);
       if (p < 1 && running) { raf = requestAnimationFrame(tick); }
       else if (running) { timeDone = true; showOutcome(); }
     }
