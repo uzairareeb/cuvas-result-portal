@@ -40,13 +40,37 @@
 </div>
 
 <div class="loader-overlay" id="loaderOverlay" aria-hidden="true">
-  <div class="loader-box">
-    <img class="loader-logo" src="{{ url_for('static', filename='img/cuvas-logo.png') }}" alt="CUVAS">
-    <div class="loader-ring"></div>
-    <p class="loader-msg" id="loaderMsg">Verifying your CNIC&hellip;</p>
-    <div class="loader-track"><div class="loader-bar" id="loaderBar"></div></div>
-    <p class="loader-pct" id="loaderPct">0%</p>
-    <button type="button" class="loader-cancel" id="loaderCancel">Cancel</button>
+  <div class="loader-box" role="dialog" aria-modal="true" aria-labelledby="loaderTitle">
+    <div id="searchState">
+      <div class="scan-wrap">
+        <span class="scan-ring r1"></span><span class="scan-ring r2"></span><span class="scan-ring r3"></span>
+        <img class="loader-logo" src="{{ url_for('static', filename='img/cuvas-logo.png') }}" alt="CUVAS">
+      </div>
+      <p class="loader-title" id="loaderTitle">Searching Your Result</p>
+      <p class="loader-msg" id="loaderMsg">Verifying your CNIC&hellip;</p>
+      <div class="loader-track"><div class="loader-bar" id="loaderBar"></div></div>
+      <p class="loader-pct"><span id="loaderPct">0%</span> &mdash; please wait</p>
+      <button type="button" class="loader-cancel" id="loaderCancel">Cancel</button>
+    </div>
+    <div id="foundState" class="result-state" hidden>
+      <svg class="mark-svg success" viewBox="0 0 52 52" aria-hidden="true">
+        <circle cx="26" cy="26" r="24"></circle>
+        <path class="mark-check" d="M14.5 27.5l7.5 7.5L37.5 19"></path>
+      </svg>
+      <h3 class="result-title ok">Result Found!</h3>
+      <p class="result-sub">Your result has been found successfully.<br>Press OK to view your result card.</p>
+      <button type="button" class="btn primary block" id="foundOk">OK &mdash; View Result Card</button>
+    </div>
+    <div id="notfoundState" class="result-state" hidden>
+      <svg class="mark-svg fail" viewBox="0 0 52 52" aria-hidden="true">
+        <circle cx="26" cy="26" r="24"></circle>
+        <path class="mark-cross d1" d="M18 18l16 16"></path>
+        <path class="mark-cross d2" d="M34 18L18 34"></path>
+      </svg>
+      <h3 class="result-title bad">Result Not Found</h3>
+      <p class="result-sub">No result was found for CNIC <b id="nfCnic"></b>.<br>Please check the number and try again.</p>
+      <button type="button" class="btn primary block" id="notfoundOk">OK</button>
+    </div>
   </div>
 </div>
 <script>
@@ -57,21 +81,33 @@
   var bar = document.getElementById('loaderBar');
   var pct = document.getElementById('loaderPct');
   var cancelBtn = document.getElementById('loaderCancel');
+  var searchState = document.getElementById('searchState');
+  var foundState = document.getElementById('foundState');
+  var notfoundState = document.getElementById('notfoundState');
+  var nfCnic = document.getElementById('nfCnic');
   var btn = form.querySelector('button[type="submit"]');
-  var DURATION = 12000;
+  var DURATION = 7000; /* 6-8s search experience */
   var STAGES = [
     'Verifying your CNIC&hellip;',
     'Connecting to the result database&hellip;',
+    'Searching the result records&hellip;',
     'Fetching your result&hellip;',
     'Preparing your result card&hellip;'
   ];
-  var timers = [], raf = null, running = false;
+  var timers = [], raf = null, running = false, cancelled = false;
+  var resultUrl = null, fetchDone = false, timeDone = false, found = false;
 
   function setMsg(html) {
     msg.style.opacity = 0;
     setTimeout(function () { msg.innerHTML = html; msg.style.opacity = 1; }, 220);
   }
-  function stop() {
+  function showOutcome() {
+    if (cancelled || !running || !fetchDone || !timeDone) return;
+    searchState.hidden = true;
+    if (found) { foundState.hidden = false; document.getElementById('foundOk').focus(); }
+    else { notfoundState.hidden = false; document.getElementById('notfoundOk').focus(); }
+  }
+  function closePopup() {
     timers.forEach(clearTimeout); timers = [];
     if (raf) cancelAnimationFrame(raf); raf = null;
     running = false;
@@ -81,15 +117,25 @@
   }
   form.addEventListener('submit', function (e) {
     if (running) { e.preventDefault(); return; }
-    var digits = (document.getElementById('cnic').value || '').replace(/\D/g, '');
+    var raw = (document.getElementById('cnic').value || '');
+    var digits = raw.replace(/\D/g, '');
     if (digits.length !== 13) return; /* invalid CNIC: let the server show the error at once */
     e.preventDefault();
-    running = true;
+    running = true; cancelled = false;
+    fetchDone = false; timeDone = false; found = false;
+    resultUrl = '{{ url_for("result", cnic="0000000000000") }}'.replace('0000000000000', digits);
+    nfCnic.textContent = raw;
     btn.disabled = true;
+    searchState.hidden = false; foundState.hidden = true; notfoundState.hidden = true;
     bar.style.width = '0%'; pct.textContent = '0%';
     msg.innerHTML = STAGES[0]; msg.style.opacity = 1;
     overlay.classList.add('show');
     overlay.setAttribute('aria-hidden', 'false');
+    /* Look the result up in the background while the animation runs. */
+    fetch(resultUrl, { headers: { 'X-Requested-With': 'fetch' } })
+      .then(function (r) { found = r.ok; })
+      .catch(function () { found = false; })
+      .then(function () { fetchDone = true; showOutcome(); });
     STAGES.forEach(function (s, i) {
       timers.push(setTimeout(function () { if (i > 0) setMsg(s); }, i * (DURATION / STAGES.length)));
     });
@@ -97,14 +143,23 @@
     function tick(ts) {
       if (!start) start = ts;
       var p = Math.min((ts - start) / DURATION, 1);
-      bar.style.width = (p * 100).toFixed(1) + '%';
-      pct.textContent = Math.round(p * 100) + '%';
-      if (p < 1 && running) raf = requestAnimationFrame(tick);
+      var eased = 1 - Math.pow(1 - p, 2.2); /* fast start, gentle finish */
+      bar.style.width = (eased * 100).toFixed(1) + '%';
+      pct.textContent = Math.round(eased * 100) + '%';
+      if (p < 1 && running) { raf = requestAnimationFrame(tick); }
+      else if (running) { timeDone = true; showOutcome(); }
     }
     raf = requestAnimationFrame(tick);
-    timers.push(setTimeout(function () { form.submit(); }, DURATION));
   });
-  cancelBtn.addEventListener('click', stop);
+  cancelBtn.addEventListener('click', function () { cancelled = true; closePopup(); });
+  document.getElementById('foundOk').addEventListener('click', function () {
+    if (resultUrl) window.location.href = resultUrl;
+  });
+  document.getElementById('notfoundOk').addEventListener('click', function () {
+    closePopup();
+    var input = document.getElementById('cnic');
+    input.focus(); input.select();
+  });
 })();
 </script>
 {% endblock %}
