@@ -181,6 +181,7 @@ tbody tr:hover { background: #fafbff; }
 .lab { font-weight: 700; }
 .rtable { width: 100%; border-collapse: collapse; table-layout: fixed; }
 .rtable td { border: 1px solid #333; padding: 10px 12px; font-size: 14.5px; overflow: hidden; }
+.rtable tr:last-child td { border-bottom: 1px solid #333; } /* beat the generic tr:last-child reset so the card table keeps its bottom line, like the PDF */
 .rtable .lab2 { background: #eef0fb; font-weight: 700; }
 .rtable .val.status-q { color: #2d3290; font-weight: 700; }
 .rtable .val.status-nq { color: #b3261e; font-weight: 700; }
