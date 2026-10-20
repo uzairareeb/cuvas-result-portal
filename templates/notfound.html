@@ -5,7 +5,11 @@
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
   </div>
   <h2>Result Not Found</h2>
+  {% if sess_name %}
+  <p class="lede">No result was found for CNIC <strong>{{ cnic_disp }}</strong> in the <strong>{{ sess_name }}</strong> session. Your result may be in another session — go back, change the <strong>Test Session</strong>, and try again. Also double-check the CNIC number.</p>
+  {% else %}
   <p class="lede">No result was found for that CNIC. Please check the number and try again.</p>
+  {% endif %}
   <a class="btn primary" href="{{ url_for('index') }}">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
     Try Again

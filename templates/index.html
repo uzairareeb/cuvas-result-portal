@@ -77,7 +77,7 @@
         <path class="mark-cross d2" d="M34 18L18 34"></path>
       </svg>
       <h3 class="result-title bad">Result Not Found</h3>
-      <p class="result-sub">No result was found for CNIC <b id="nfCnic"></b>.<br>Please check the number and try again.</p>
+      <p class="result-sub">No result was found for CNIC <b id="nfCnic"></b><span id="nfSessionWrap"> in the <b id="nfSession"></b> session</span>.<br>Your result may be in another session — please change the Test Session and try again, or check the number.</p>
       <button type="button" class="btn primary block" id="notfoundOk">OK</button>
     </div>
   </div>
@@ -146,6 +146,17 @@
     running = true; cancelled = false;
     fetchDone = false; timeDone = false; found = false;
     resultUrl = '{{ url_for("result", cnic="0000000000000") }}'.replace('0000000000000', digits);
+    var sessSel = document.getElementById('sessionSel');
+    var nfWrap = document.getElementById('nfSessionWrap');
+    if (sessSel && sessSel.value) {
+      /* The selected session decides where the result is looked up. */
+      resultUrl += '?s=' + encodeURIComponent(sessSel.value);
+      document.getElementById('nfSession').textContent =
+        sessSel.options[sessSel.selectedIndex].text.replace(/\s*\(latest\)\s*$/, '');
+      if (nfWrap) nfWrap.hidden = false;
+    } else if (nfWrap) {
+      nfWrap.hidden = true;
+    }
     nfCnic.textContent = raw;
     btn.disabled = true;
     searchState.hidden = false; foundState.hidden = true; notfoundState.hidden = true;
