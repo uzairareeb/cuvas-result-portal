@@ -9,11 +9,14 @@ Deploy on Vercel: set DATABASE_URL env var to a Postgres URL
   (e.g. Neon via Vercel's one-click Postgres integration).
 """
 import csv
+import hashlib
+import hmac
 import io
+import json
 import os
 import re
 import sqlite3
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from functools import wraps
 
 from flask import (Flask, flash, g, redirect, render_template, request,
@@ -188,6 +191,60 @@ def init_db():
         db.execute("DELETE FROM settings WHERE key='passing_percent'")
         # Migrate the old 50% default to the new 60% default (custom values untouched).
         db.execute("UPDATE settings SET value='60' WHERE key='phd_passing_percent' AND value='50'")
+    # ---- admin portal upgrade tables (both backends) ----
+    idcol = "SERIAL PRIMARY KEY" if USE_PG else "INTEGER PRIMARY KEY AUTOINCREMENT"
+    db.execute(f"""
+        CREATE TABLE IF NOT EXISTS audit_log (
+            id {idcol},
+            ts TEXT NOT NULL,
+            action TEXT NOT NULL,
+            detail TEXT
+        )
+    """)
+    db.execute(f"""
+        CREATE TABLE IF NOT EXISTS backups (
+            id {idcol},
+            ts TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            count INTEGER NOT NULL,
+            data TEXT NOT NULL
+        )
+    """)
+    db.execute(f"""
+        CREATE TABLE IF NOT EXISTS uploads (
+            id {idcol},
+            ts TEXT NOT NULL,
+            filename TEXT NOT NULL,
+            imported INTEGER NOT NULL DEFAULT 0,
+            updated INTEGER NOT NULL DEFAULT 0,
+            skipped INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+    db.execute(f"""
+        CREATE TABLE IF NOT EXISTS upload_staging (
+            id {idcol},
+            batch TEXT NOT NULL,
+            row_no INTEGER NOT NULL,
+            status TEXT NOT NULL,
+            reason TEXT,
+            data TEXT
+        )
+    """)
+    db.execute(f"""
+        CREATE TABLE IF NOT EXISTS lookups (
+            id {idcol},
+            ts TEXT NOT NULL,
+            cnic TEXT NOT NULL,
+            found INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+    db.execute(f"""
+        CREATE TABLE IF NOT EXISTS login_attempts (
+            id {idcol},
+            ts_epoch DOUBLE PRECISION NOT NULL,
+            ip TEXT NOT NULL
+        )
+    """)
     db.commit()
     db.close()
 
@@ -245,6 +302,103 @@ def set_setting(key, value):
     else:
         db.execute("INSERT OR REPLACE INTO settings(key, value) VALUES (?, ?)", (key, value))
     db.commit()
+
+
+# ---------------- admin helpers: audit, backups, security ----------------
+def _now_str():
+    return datetime.now().strftime("%Y-%m-%d %H:%M")
+
+
+def log_audit(action, detail=""):
+    """Record an admin action. Never let logging break the main flow."""
+    try:
+        db = get_db()
+        db.execute("INSERT INTO audit_log(ts, action, detail) VALUES (?, ?, ?)",
+                   (_now_str(), action, detail))
+        db.commit()
+    except Exception:
+        pass
+
+
+def make_backup(reason):
+    """Snapshot ALL candidate records (JSON) so a destructive action can be
+    undone from Admin -> Backups. Returns the number of records saved."""
+    try:
+        db = get_db()
+        rows = [dict(r) for r in db.fetchall("SELECT * FROM candidates")]
+        db.execute("INSERT INTO backups(ts, reason, count, data) VALUES (?, ?, ?, ?)",
+                   (_now_str(), reason, len(rows), json.dumps(rows)))
+        db.commit()
+        return len(rows)
+    except Exception:
+        return 0
+
+
+def obtained_pct(obtained, total):
+    """Obtained marks as a percentage of total (None when not computable)."""
+    try:
+        t, o = float(total), float(obtained)
+    except (TypeError, ValueError):
+        return None
+    if t <= 0:
+        return None
+    return round(o / t * 100, 1)
+
+
+def _client_ip():
+    fwd = request.headers.get("X-Forwarded-For", "")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    return request.remote_addr or "unknown"
+
+
+LOGIN_MAX_FAILS = 5
+LOGIN_WINDOW_MIN = 15
+
+
+def _login_locked(ip):
+    """Locked when LOGIN_MAX_FAILS failed attempts happened inside the window."""
+    try:
+        db = get_db()
+        cutoff = (datetime.now() - timedelta(minutes=LOGIN_WINDOW_MIN)).timestamp()
+        row = db.fetchone("SELECT COUNT(*) AS c FROM login_attempts "
+                          "WHERE ip=? AND ts_epoch>=?", (ip, cutoff))
+        return (row["c"] if isinstance(row, dict) else row[0]) >= LOGIN_MAX_FAILS
+    except Exception:
+        return False
+
+
+def _record_login_fail(ip):
+    try:
+        db = get_db()
+        db.execute("INSERT INTO login_attempts(ts_epoch, ip) VALUES (?, ?)",
+                   (datetime.now().timestamp(), ip))
+        db.commit()
+    except Exception:
+        pass
+
+
+def _clear_login_fails(ip):
+    try:
+        db = get_db()
+        db.execute("DELETE FROM login_attempts WHERE ip=?", (ip,))
+        db.commit()
+    except Exception:
+        pass
+
+
+def _password_ok(pw):
+    """The in-app password (hashed, set from Admin -> Change Password) wins;
+    otherwise fall back to the ADMIN_PASSWORD environment value."""
+    stored = ""
+    try:
+        stored = get_setting("admin_password_hash", "")
+    except Exception:
+        stored = ""
+    if stored:
+        digest = hashlib.sha256((pw or "").encode("utf-8")).hexdigest()
+        return hmac.compare_digest(digest, stored)
+    return hmac.compare_digest(str(pw or ""), str(app.config["ADMIN_PASSWORD"]))
 
 
 def norm_cnic(raw):
@@ -392,6 +546,13 @@ def index():
 def result(cnic):
     cnic = norm_cnic(cnic)
     row = get_db().fetchone("SELECT * FROM candidates WHERE cnic=?", (cnic,))
+    try:  # lookup analytics for the admin Lookup Log (never breaks the page)
+        db = get_db()
+        db.execute("INSERT INTO lookups(ts, cnic, found) VALUES (?, ?, ?)",
+                   (_now_str(), cnic, 1 if row else 0))
+        db.commit()
+    except Exception:
+        pass
     if not row:
         return render_template("notfound.html", uni=UNI_NAME, title=PORTAL_TITLE), 404
     r = dict(row)
@@ -563,9 +724,19 @@ def admin_login():
         return redirect(url_for("admin_dashboard"))
     error = None
     if request.method == "POST":
-        if request.form.get("password") == app.config["ADMIN_PASSWORD"]:
+        ip = _client_ip()
+        if _login_locked(ip):
+            error = ("Too many failed attempts. Please wait "
+                     f"{LOGIN_WINDOW_MIN} minutes and try again.")
+            return render_template("admin_login.html", uni=UNI_NAME,
+                                   title=PORTAL_TITLE, error=error)
+        if _password_ok(request.form.get("password")):
             session["admin"] = True
+            _clear_login_fails(ip)
+            log_audit("Admin login", f"IP {ip}")
             return redirect(url_for("admin_dashboard"))
+        _record_login_fail(ip)
+        log_audit("Failed login attempt", f"IP {ip}")
         error = "Wrong password."
     return render_template("admin_login.html", uni=UNI_NAME, title=PORTAL_TITLE, error=error)
 
@@ -601,18 +772,63 @@ def admin_dashboard():
         breakdown.append({"program": prog, "total": len(pr), "qualified": pq,
                           "rate": round(pq / len(pr) * 100, 1) if pr else 0})
     recent = sorted(rows, key=lambda r: r.get("uploaded_at") or "", reverse=True)[:8]
+
+    # ---- insights: discipline stats, marks distribution, top scorers ----
+    for r in rows:
+        r["pct"] = obtained_pct(r.get("obtained"), r.get("total"))
+    disc = {}
+    for r in rows:
+        d = (r.get("discipline") or "—").strip() or "—"
+        s = disc.setdefault(d, {"degree": d, "total": 0, "qualified": 0})
+        s["total"] += 1
+        if r["status"] == "Qualified":
+            s["qualified"] += 1
+    disc_stats = sorted(disc.values(), key=lambda s: -s["total"])[:8]
+    for s in disc_stats:
+        s["rate"] = round(s["qualified"] / s["total"] * 100, 1) if s["total"] else 0
+    buckets = [("<40%", 0, 40), ("40–49%", 40, 50), ("50–59%", 50, 60),
+               ("60–69%", 60, 70), ("70–79%", 70, 80), ("80–89%", 80, 90),
+               ("90–100%", 90, 100.01)]
+    dist = []
+    for label, lo, hi in buckets:
+        n = sum(1 for r in rows if r["pct"] is not None and lo <= r["pct"] < hi)
+        dist.append({"label": label, "count": n})
+    dist_max = max((d["count"] for d in dist), default=0) or 1
+    for d in dist:
+        d["width"] = round(d["count"] / dist_max * 100, 1)
+    top_scorers = sorted([r for r in rows if r["pct"] is not None],
+                         key=lambda r: (-r["pct"], r.get("name") or ""))[:5]
+    pass_rate = round(qcount / total * 100, 1) if total else 0
+    # Donut geometry: r=52, circumference ~= 326.7
+    donut_dash = round(pass_rate / 100 * 326.7, 1)
+    try:
+        lk = db.fetchone("SELECT COUNT(*) AS c FROM lookups")
+        lk_total = lk["c"] if isinstance(lk, dict) else lk[0]
+        lkf = db.fetchone("SELECT COUNT(*) AS c FROM lookups WHERE found=0")
+        lk_fails = lkf["c"] if isinstance(lkf, dict) else lkf[0]
+    except Exception:
+        lk_total, lk_fails = 0, 0
     return render_template("admin_dashboard.html", uni=UNI_NAME, title=PORTAL_TITLE,
                            active="dashboard", total=total, phd=phd, mphil=mphil,
                            qcount=qcount, nqcount=total - qcount,
                            published=get_setting("published", "1") == "1",
                            phd_pct=get_setting("phd_passing_percent", "60"),
                            mphil_pct=get_setting("mphil_passing_percent", "50"),
-                           breakdown=breakdown, recent=recent)
+                           breakdown=breakdown, recent=recent,
+                           disc_stats=disc_stats, dist=dist,
+                           top_scorers=top_scorers, pass_rate=pass_rate,
+                           donut_dash=donut_dash, lk_total=lk_total,
+                           lk_fails=lk_fails)
 
 
 @app.route("/admin/upload")
 @admin_required
 def admin_upload_page():
+    try:
+        history = [dict(r) for r in get_db().fetchall(
+            "SELECT * FROM uploads ORDER BY id DESC LIMIT 10")]
+    except Exception:
+        history = []
     return render_template("admin_upload.html", uni=UNI_NAME, title=PORTAL_TITLE,
                            active="upload",
                            phd_pct=get_setting("phd_passing_percent", "60"),
@@ -621,7 +837,8 @@ def admin_upload_page():
                            phd_notice=get_setting("phd_notice", ""),
                            phd_notice_date=get_setting("phd_notice_date", ""),
                            mphil_notice=get_setting("mphil_notice", ""),
-                           mphil_notice_date=get_setting("mphil_notice_date", ""))
+                           mphil_notice_date=get_setting("mphil_notice_date", ""),
+                           history=history)
 
 
 def _clean_pct(v):
@@ -648,8 +865,37 @@ def admin_settings():
     set_setting("phd_notice_date", request.form.get("phd_notice_date", "").strip())
     set_setting("mphil_notice", request.form.get("mphil_notice", "").strip())
     set_setting("mphil_notice_date", request.form.get("mphil_notice_date", "").strip())
+    log_audit("Settings updated",
+              f"PhD passing {_clean_pct(phd)}%, MPhil passing {_clean_pct(mphil)}%, "
+              f"portal {'published' if request.form.get('published') else 'hidden'}")
     flash("Settings saved.")
     return redirect(url_for("admin_upload_page"))
+
+
+@app.route("/admin/password", methods=["GET", "POST"])
+@admin_required
+def admin_password():
+    if request.method == "POST":
+        current = request.form.get("current", "")
+        new = request.form.get("new", "")
+        confirm = request.form.get("confirm", "")
+        if not _password_ok(current):
+            flash("Current password is wrong.")
+            return redirect(url_for("admin_password"))
+        if len(new) < 6:
+            flash("New password must be at least 6 characters.")
+            return redirect(url_for("admin_password"))
+        if new != confirm:
+            flash("New passwords do not match.")
+            return redirect(url_for("admin_password"))
+        set_setting("admin_password_hash",
+                    hashlib.sha256(new.encode("utf-8")).hexdigest())
+        _clear_login_fails(_client_ip())
+        log_audit("Admin password changed", "")
+        flash("Admin password changed.")
+        return redirect(url_for("admin_dashboard"))
+    return render_template("admin_password.html", uni=UNI_NAME, title=PORTAL_TITLE,
+                           active="password")
 
 
 def _filtered_students(q, program, degree, status):
@@ -724,38 +970,8 @@ def admin_export():
     degree = request.args.get("degree", "all")
     status = request.args.get("status", "all")
     rows = _filtered_students(q, program, degree, status)
-
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Students"
-    headers = ["Name", "Father's Name", "CNIC", "Program", "Applied Degree",
-               "Held On", "Total Marks", "Obtained Marks", "Passing Marks",
-               "Result Status", "Valid Till"]
-    ws.append(headers)
-    for cell in ws[1]:
-        cell.font = Font(bold=True, color="FFFFFF")
-        cell.fill = PatternFill("solid", fgColor="2D3290")
-        cell.alignment = Alignment(horizontal="center")
-    for r in rows:
-        held = parse_date(r.get("test_date"))
-        valid = add_one_year(held) if held else None
-        pm, _ = calc_result(r.get("obtained"), r.get("total"),
-                            program_passing_pct(r["program"]))
-        ws.append([r.get("name"), r.get("father_name"), r.get("cnic"),
-                   r.get("program"), r.get("discipline"),
-                   fmt_date(held) if held else (r.get("test_date") or ""),
-                   r.get("total"), r.get("obtained"), pm, r.get("status"),
-                   fmt_date(valid) if valid else ""])
-    widths = [22, 22, 20, 12, 24, 16, 14, 16, 14, 16, 16]
-    for i, w in enumerate(widths, start=1):
-        ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = w
-    buf = io.BytesIO()
-    wb.save(buf)
-    buf.seek(0)
-    return send_file(
-        buf, as_attachment=True,
-        download_name="cuvas_students_export.xlsx",
-        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    log_audit("Records exported", f"{len(rows)} record(s) to Excel")
+    return _xlsx_response(rows, "cuvas_students_export.xlsx")
 
 
 @app.route("/admin/export-pdf")
@@ -839,14 +1055,17 @@ def admin_export_pdf():
 
     # Data table
     headers = ["#", "Name", "Father's Name", "CNIC", "Program", "Applied Degree",
-               "Total", "Obtained", "Passing", "Status", "Held On"]
-    col_w = [10 * mm, 36 * mm, 32 * mm, 30 * mm, 18 * mm, 42 * mm, 15 * mm,
-             17 * mm, 15 * mm, 22 * mm, 28 * mm]
+               "Total", "Obtained", "Passing %", "Status", "Held On"]
+    col_w = [10 * mm, 36 * mm, 32 * mm, 30 * mm, 18 * mm, 39 * mm, 15 * mm,
+             21 * mm, 17 * mm, 22 * mm, 28 * mm]
     data = [[Paragraph(h, head_style) for h in headers]]
     for i, r in enumerate(rows, start=1):
         held = parse_date(r.get("test_date"))
-        pm, _ = calc_result(r.get("obtained"), r.get("total"),
-                            program_passing_pct(r["program"]))
+        opct = obtained_pct(r.get("obtained"), r.get("total"))
+        ppct = program_passing_pct(r["program"])
+        obt_disp = str(r.get("obtained") or "")
+        if opct is not None and obt_disp:
+            obt_disp = f"{obt_disp} ({fmt_num(opct)}%)"
         st = r.get("status", "")
         st_color = "#12805c" if st == "Qualified" else "#b3261e"
         data.append([
@@ -857,8 +1076,8 @@ def admin_export_pdf():
             Paragraph(str(r.get("program") or ""), cell_style),
             Paragraph(str(r.get("discipline") or ""), cell_style),
             Paragraph(str(r.get("total") or ""), cell_style),
-            Paragraph(str(r.get("obtained") or ""), cell_style),
-            Paragraph(str(pm), cell_style),
+            Paragraph(obt_disp, cell_style),
+            Paragraph(fmt_num(ppct) + "%", cell_style),
             Paragraph(f'<font color="{st_color}"><b>{st}</b></font>', cell_style),
             Paragraph(fmt_date(held) if held else str(r.get("test_date") or ""),
                       cell_style),
@@ -927,6 +1146,7 @@ def admin_edit_student(cid):
                    (name, father, cnic, program, discipline, test_date,
                     obtained or None, total or None, cid))
         db.commit()
+        log_audit("Record edited", f"{name} ({fmt_cnic(cnic)}) — {obtained}/{total}")
         flash("Student record updated.")
         return redirect(url_for("admin_students"))
     r = dict(row)
@@ -943,9 +1163,13 @@ def admin_edit_student(cid):
 @admin_required
 def admin_delete_student(cid):
     db = get_db()
+    row = db.fetchone("SELECT name, cnic FROM candidates WHERE id=?", (cid,))
+    label = f"{row['name']} ({fmt_cnic(row['cnic'])})" if row else f"id {cid}"
+    make_backup(f"Before deleting {label}")
     db.execute("DELETE FROM candidates WHERE id=?", (cid,))
     db.commit()
-    flash("Student record deleted.")
+    log_audit("Record deleted", label)
+    flash("Student record deleted. A backup was saved under Admin → Backups.")
     return redirect(url_for("admin_students"))
 
 
@@ -953,9 +1177,302 @@ def admin_delete_student(cid):
 @admin_required
 def admin_clear():
     db = get_db()
+    n = make_backup("Before deleting ALL records")
     db.execute("DELETE FROM candidates")
     db.commit()
-    flash("All result records deleted.")
+    log_audit("All records deleted", f"{n} record(s) were backed up first")
+    flash("All result records deleted. A backup was saved under Admin → Backups.")
+    return redirect(url_for("admin_students"))
+
+
+# ---------------- admin: activity log ----------------
+@app.route("/admin/activity")
+@admin_required
+def admin_activity():
+    rows = [dict(r) for r in get_db().fetchall(
+        "SELECT * FROM audit_log ORDER BY id DESC LIMIT 200")]
+    return render_template("admin_activity.html", uni=UNI_NAME, title=PORTAL_TITLE,
+                           active="activity", rows=rows)
+
+
+# ---------------- admin: backups ----------------
+BACKUP_COLS = ("name", "father_name", "cnic", "program", "roll_no", "discipline",
+               "test_date", "obtained", "total", "merit_no", "uploaded_at")
+
+
+@app.route("/admin/backups")
+@admin_required
+def admin_backups():
+    rows = [dict(r) for r in get_db().fetchall(
+        "SELECT id, ts, reason, count FROM backups ORDER BY id DESC")]
+    return render_template("admin_backups.html", uni=UNI_NAME, title=PORTAL_TITLE,
+                           active="backups", rows=rows)
+
+
+@app.route("/admin/backups/<int:bid>/download")
+@admin_required
+def admin_backup_download(bid):
+    row = get_db().fetchone("SELECT * FROM backups WHERE id=?", (bid,))
+    if not row:
+        flash("Backup not found.")
+        return redirect(url_for("admin_backups"))
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["Name", "Father's Name", "CNIC", "Program", "Roll No",
+                "Applied Degree", "Held On", "Total Marks", "Obtained Marks",
+                "Merit No", "Uploaded At"])
+    for rec in json.loads(dict(row)["data"] or "[]"):
+        w.writerow([rec.get(c, "") for c in BACKUP_COLS])
+    out = io.BytesIO(buf.getvalue().encode("utf-8-sig"))
+    return send_file(out, as_attachment=True,
+                     download_name=f"backup_{bid}_{dict(row)['ts'][:10]}.csv",
+                     mimetype="text/csv")
+
+
+@app.route("/admin/backups/<int:bid>/restore", methods=["POST"])
+@admin_required
+def admin_backup_restore(bid):
+    db = get_db()
+    row = db.fetchone("SELECT * FROM backups WHERE id=?", (bid,))
+    if not row:
+        flash("Backup not found.")
+        return redirect(url_for("admin_backups"))
+    make_backup(f"Before restoring backup #{bid}")
+    recs = json.loads(dict(row)["data"] or "[]")
+    db.execute("DELETE FROM candidates")
+    placeholders = ", ".join(["?"] * len(BACKUP_COLS))
+    for rec in recs:
+        db.execute(f"INSERT INTO candidates ({', '.join(BACKUP_COLS)}) "
+                   f"VALUES ({placeholders})",
+                   tuple(rec.get(c, "") or None for c in BACKUP_COLS))
+    db.commit()
+    log_audit("Backup restored", f"backup #{bid} — {len(recs)} record(s)")
+    flash(f"Backup #{bid} restored ({len(recs)} record(s)).")
+    return redirect(url_for("admin_students"))
+
+
+# ---------------- admin: lookup log ----------------
+@app.route("/admin/lookups")
+@admin_required
+def admin_lookups():
+    db = get_db()
+    try:
+        total = db.fetchone("SELECT COUNT(*) AS c FROM lookups")
+        total = total["c"] if isinstance(total, dict) else total[0]
+        fails = db.fetchone("SELECT COUNT(*) AS c FROM lookups WHERE found=0")
+        fails = fails["c"] if isinstance(fails, dict) else fails[0]
+        recent = [dict(r) for r in db.fetchall(
+            "SELECT * FROM lookups ORDER BY id DESC LIMIT 60")]
+        top = [dict(r) for r in db.fetchall(
+            "SELECT cnic, COUNT(*) AS tries, MAX(ts) AS last FROM lookups "
+            "WHERE found=0 GROUP BY cnic ORDER BY tries DESC LIMIT 20")]
+    except Exception:
+        total, fails, recent, top = 0, 0, [], []
+    return render_template("admin_lookups.html", uni=UNI_NAME, title=PORTAL_TITLE,
+                           active="lookups", total=total, fails=fails,
+                           recent=recent, top=top)
+
+
+# ---------------- admin: merit list ----------------
+def _merit_rows(program="all", degree="all"):
+    rows = _filtered_students("", program, degree, "all")
+    for r in rows:
+        r["pct"] = obtained_pct(r.get("obtained"), r.get("total"))
+    rows.sort(key=lambda r: (-(r["pct"] if r["pct"] is not None else -1),
+                             r.get("name") or ""))
+    for i, r in enumerate(rows, start=1):
+        r["rank"] = i
+    return rows
+
+
+@app.route("/admin/merit")
+@admin_required
+def admin_merit():
+    program = request.args.get("program", "all")
+    degree = request.args.get("degree", "all")
+    rows = _merit_rows(program, degree)
+    return render_template("admin_merit.html", uni=UNI_NAME, title=PORTAL_TITLE,
+                           active="merit", rows=rows, program=program,
+                           degree=degree, degrees=_degree_options())
+
+
+@app.route("/admin/merit-pdf")
+@admin_required
+def admin_merit_pdf():
+    """Printable merit list (sorted by obtained percentage), PDF."""
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib.units import mm
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib.enums import TA_LEFT
+    from reportlab.platypus import (SimpleDocTemplate, Table, TableStyle,
+                                    Paragraph, Spacer, Image as RLImage)
+
+    program = request.args.get("program", "all")
+    degree = request.args.get("degree", "all")
+    rows = _merit_rows(program, degree)
+
+    INDIGO = colors.HexColor("#2d3290")
+    DARK = colors.HexColor("#1a1f36")
+    MUTED = colors.HexColor("#667085")
+
+    buf = io.BytesIO()
+    page = landscape(A4)
+    doc = SimpleDocTemplate(buf, pagesize=page, leftMargin=14 * mm,
+                            rightMargin=14 * mm, topMargin=14 * mm,
+                            bottomMargin=14 * mm, title="CUVAS Merit List")
+    avail = page[0] - 28 * mm
+    title_style = ParagraphStyle("t", fontName="Helvetica-Bold", fontSize=15,
+                                 textColor=DARK, alignment=TA_LEFT, leading=18)
+    sub_style = ParagraphStyle("s", fontName="Helvetica", fontSize=10,
+                               textColor=MUTED, alignment=TA_LEFT, leading=13)
+    cell_style = ParagraphStyle("c", fontName="Helvetica", fontSize=8.5,
+                                textColor=DARK, leading=11)
+    head_style = ParagraphStyle("h", fontName="Helvetica-Bold", fontSize=9,
+                                textColor=colors.white, leading=11)
+    story = []
+    logo_path = os.path.join(BASE_DIR, "static", "img", "cuvas-logo.png")
+    if os.path.exists(logo_path):
+        logo = RLImage(logo_path, width=30 * mm, height=30 * mm * 148 / 270)
+        head_tbl = Table([[logo, Paragraph(
+            "Cholistan University of Veterinary &amp; Animal Sciences, Bahawalpur<br/>"
+            "<font size=11 color=\"#2d3290\"><b>Entry Test — Merit List</b></font>",
+            title_style)]], colWidths=[32 * mm, avail - 32 * mm])
+        head_tbl.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                                      ("LEFTPADDING", (1, 0), (1, 0), 6)]))
+        story.append(head_tbl)
+    else:
+        story.append(Paragraph(
+            "Cholistan University of Veterinary &amp; Animal Sciences, Bahawalpur",
+            title_style))
+        story.append(Paragraph("Entry Test — Merit List", sub_style))
+    bits = []
+    if program != "all":
+        bits.append(f"Program: <b>{program}</b>")
+    if degree != "all":
+        bits.append(f"Degree: <b>{degree}</b>")
+    story.append(Spacer(1, 3 * mm))
+    story.append(Paragraph(
+        ((" &nbsp;|&nbsp; ".join(bits) + " &nbsp;&nbsp;•&nbsp;&nbsp;") if bits else "")
+        + f"Total: <b>{len(rows)}</b> candidate(s) &nbsp;&nbsp;•&nbsp;&nbsp; "
+        f"Generated: {datetime.now().strftime('%d-%b-%Y %H:%M')}", sub_style))
+    story.append(Spacer(1, 4 * mm))
+    headers = ["Rank", "Merit No", "Name", "Father's Name", "CNIC", "Program",
+               "Applied Degree", "Total", "Obtained", "%", "Status"]
+    col_w = [13 * mm, 18 * mm, 38 * mm, 34 * mm, 30 * mm, 18 * mm, 40 * mm,
+             14 * mm, 17 * mm, 14 * mm, 24 * mm]
+    data = [[Paragraph(h, head_style) for h in headers]]
+    for r in rows:
+        st = r.get("status", "")
+        st_color = "#12805c" if st == "Qualified" else "#b3261e"
+        data.append([
+            Paragraph(str(r["rank"]), cell_style),
+            Paragraph(str(r.get("merit_no") or ""), cell_style),
+            Paragraph(str(r.get("name") or ""), cell_style),
+            Paragraph(str(r.get("father_name") or ""), cell_style),
+            Paragraph(str(r.get("cnic") or ""), cell_style),
+            Paragraph(str(r.get("program") or ""), cell_style),
+            Paragraph(str(r.get("discipline") or ""), cell_style),
+            Paragraph(str(r.get("total") or ""), cell_style),
+            Paragraph(str(r.get("obtained") or ""), cell_style),
+            Paragraph((fmt_num(r["pct"]) + "%") if r["pct"] is not None else "",
+                       cell_style),
+            Paragraph(f'<font color="{st_color}"><b>{st}</b></font>', cell_style),
+        ])
+    tbl = Table(data, colWidths=col_w, repeatRows=1)
+    tbl.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), INDIGO),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#d0d5e8")),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f4f6fc")]),
+        ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4), ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    story.append(tbl)
+
+    def _footer(canv, _doc):
+        canv.saveState()
+        canv.setFont("Helvetica", 8)
+        canv.setFillColor(MUTED)
+        canv.drawString(14 * mm, 10 * mm,
+                        "Cholistan University of Veterinary & Animal Sciences, Bahawalpur")
+        canv.drawRightString(page[0] - 14 * mm, 10 * mm, f"Page {_doc.page}")
+        canv.restoreState()
+
+    doc.build(story, onFirstPage=_footer, onLaterPages=_footer)
+    buf.seek(0)
+    return send_file(buf, as_attachment=True,
+                     download_name="cuvas_merit_list.pdf",
+                     mimetype="application/pdf")
+
+
+# ---------------- admin: bulk actions on student records ----------------
+def _xlsx_response(rows, filename):
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Students"
+    headers = ["Name", "Father's Name", "CNIC", "Program", "Applied Degree",
+               "Held On", "Total Marks", "Obtained Marks", "Obtained %",
+               "Passing %", "Result Status", "Valid Till"]
+    ws.append(headers)
+    for cell in ws[1]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="2D3290")
+        cell.alignment = Alignment(horizontal="center")
+    for r in rows:
+        held = parse_date(r.get("test_date"))
+        valid = add_one_year(held) if held else None
+        opct = obtained_pct(r.get("obtained"), r.get("total"))
+        ppct = program_passing_pct(r["program"])
+        ws.append([r.get("name"), r.get("father_name"), r.get("cnic"),
+                   r.get("program"), r.get("discipline"),
+                   fmt_date(held) if held else (r.get("test_date") or ""),
+                   r.get("total"), r.get("obtained"),
+                   (fmt_num(opct) + "%") if opct is not None else "",
+                   fmt_num(ppct) + "%", r.get("status"),
+                   fmt_date(valid) if valid else ""])
+    widths = [22, 22, 20, 12, 24, 16, 14, 16, 12, 12, 16, 16]
+    for i, w in enumerate(widths, start=1):
+        ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = w
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return send_file(
+        buf, as_attachment=True, download_name=filename,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+@app.route("/admin/students/bulk", methods=["POST"])
+@admin_required
+def admin_students_bulk():
+    ids = request.form.getlist("ids")
+    ids = [int(i) for i in ids if str(i).isdigit()]
+    action = request.form.get("action", "")
+    if not ids:
+        flash("No records selected.")
+        return redirect(url_for("admin_students"))
+    db = get_db()
+    rows = [dict(r) for r in db.fetchall(
+        f"SELECT * FROM candidates WHERE id IN ({','.join(['?'] * len(ids))})", ids)]
+    for r in rows:
+        r["program"] = r.get("program") or "PhD"
+        _, r["status"] = calc_result(r.get("obtained"), r.get("total"),
+                                     program_passing_pct(r["program"]))
+    if action == "export":
+        log_audit("Bulk export", f"{len(rows)} record(s)")
+        return _xlsx_response(rows, "cuvas_selected_students.xlsx")
+    if action == "delete":
+        make_backup(f"Before bulk delete ({len(rows)} record(s))")
+        db.execute(f"DELETE FROM candidates WHERE id IN ({','.join(['?'] * len(ids))})",
+                   ids)
+        db.commit()
+        log_audit("Bulk delete", f"{len(rows)} record(s)")
+        flash(f"{len(rows)} record(s) deleted. A backup was saved under Admin → Backups.")
+        return redirect(url_for("admin_students"))
+    flash("Unknown bulk action.")
     return redirect(url_for("admin_students"))
 
 
@@ -1018,19 +1535,14 @@ def admin_upload():
         flash("File must contain at least a Name column and a CNIC column.")
         return redirect(url_for("admin_upload_page"))
 
+    # Stage every row first — nothing is saved until the admin reviews the
+    # preview page and presses Confirm.
     db = get_db()
-    now = datetime.now().strftime("%Y-%m-%d %H:%M")
-    imported, skipped = 0, 0
-    cols = ("name", "father_name", "cnic", "program", "roll_no", "discipline",
-            "test_date", "obtained", "total", "merit_no", "uploaded_at")
-    placeholders = ", ".join(["?"] * len(cols))
-    if USE_PG:
-        upsert = (f"INSERT INTO candidates ({', '.join(cols)}) VALUES ({placeholders}) "
-                  "ON CONFLICT(cnic) DO UPDATE SET "
-                  + ", ".join(f"{c}=EXCLUDED.{c}" for c in cols if c != "cnic"))
-    else:
-        upsert = f"INSERT OR REPLACE INTO candidates ({', '.join(cols)}) VALUES ({placeholders})"
-    for rr in raw_rows:
+    existing = {r["cnic"] for r in db.fetchall("SELECT cnic FROM candidates")}
+    batch = datetime.now().strftime("%Y%m%d%H%M%S") + "-" + os.urandom(3).hex()
+    db.execute("DELETE FROM upload_staging")  # one pending preview at a time
+    staged = 0
+    for row_no, rr in enumerate(raw_rows, start=2):  # row 1 = header in the file
         rec = {}
         for hdr, val in rr.items():
             field = mapping.get(hdr)
@@ -1045,22 +1557,115 @@ def admin_upload():
                     val = norm_program(val)
                 rec[field] = str(val).strip() if val is not None else ""
         cnic = norm_cnic(rec.get("cnic", ""))
-        if not rec.get("name") or len(cnic) != 13:
+        rec["cnic"] = cnic
+        if not rec.get("name"):
+            status, reason = "invalid", "Missing name"
+        elif len(cnic) != 13:
+            status, reason = "invalid", "CNIC is not 13 digits"
+        elif cnic in existing:
+            status, reason = "update", "CNIC already exists — record will be updated"
+        else:
+            status, reason = "new", ""
+            existing.add(cnic)
+        db.execute("INSERT INTO upload_staging(batch, row_no, status, reason, data)"
+                   " VALUES (?, ?, ?, ?, ?)",
+                   (batch, row_no, status, reason, json.dumps(rec)))
+        staged += 1
+    db.commit()
+    session["upload_batch"] = batch
+    session["upload_file"] = file.filename
+    log_audit("Upload staged for preview", f"{file.filename} — {staged} row(s)")
+    return redirect(url_for("admin_upload_preview"))
+
+
+@app.route("/admin/upload/preview")
+@admin_required
+def admin_upload_preview():
+    batch = session.get("upload_batch")
+    if not batch:
+        flash("No upload is waiting for review.")
+        return redirect(url_for("admin_upload_page"))
+    db = get_db()
+    rows = []
+    for s in db.fetchall("SELECT * FROM upload_staging WHERE batch=? ORDER BY row_no",
+                         (batch,)):
+        d = dict(s)
+        d["rec"] = json.loads(d["data"] or "{}")
+        rows.append(d)
+    counts = {"new_count": 0, "update_count": 0, "invalid_count": 0}
+    for d in rows:
+        counts[d["status"] + "_count"] = counts.get(d["status"] + "_count", 0) + 1
+    return render_template("admin_preview.html", uni=UNI_NAME, title=PORTAL_TITLE,
+                           active="upload", rows=rows, counts=counts,
+                           filename=session.get("upload_file", ""))
+
+
+@app.route("/admin/upload/confirm", methods=["POST"])
+@admin_required
+def admin_upload_confirm():
+    batch = session.get("upload_batch")
+    if not batch:
+        flash("No upload is waiting for review.")
+        return redirect(url_for("admin_upload_page"))
+    db = get_db()
+    staged = db.fetchall("SELECT * FROM upload_staging WHERE batch=? ORDER BY row_no",
+                         (batch,))
+    filename = session.get("upload_file", "upload")
+    make_backup(f"Before upload: {filename}")
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    cols = ("name", "father_name", "cnic", "program", "roll_no", "discipline",
+            "test_date", "obtained", "total", "merit_no", "uploaded_at")
+    placeholders = ", ".join(["?"] * len(cols))
+    if USE_PG:
+        upsert = (f"INSERT INTO candidates ({', '.join(cols)}) VALUES ({placeholders}) "
+                  "ON CONFLICT(cnic) DO UPDATE SET "
+                  + ", ".join(f"{c}=EXCLUDED.{c}" for c in cols if c != "cnic"))
+    else:
+        upsert = f"INSERT OR REPLACE INTO candidates ({', '.join(cols)}) VALUES ({placeholders})"
+    imported = updated = skipped = 0
+    for s in staged:
+        d = dict(s)
+        if d["status"] == "invalid":
             skipped += 1
             continue
-        values = (rec.get("name"), rec.get("father_name"), cnic,
+        rec = json.loads(d["data"] or "{}")
+        values = (rec.get("name"), rec.get("father_name"), rec.get("cnic"),
                   rec.get("program") or "PhD", rec.get("roll_no"),
                   rec.get("discipline"), rec.get("test_date"),
                   rec.get("obtained") or None, rec.get("total") or None,
                   rec.get("merit_no"), now)
         try:
             db.execute(upsert, values)
-            imported += 1
+            if d["status"] == "update":
+                updated += 1
+            else:
+                imported += 1
         except Exception:
             skipped += 1
+    db.execute("INSERT INTO uploads(ts, filename, imported, updated, skipped)"
+               " VALUES (?, ?, ?, ?, ?)", (_now_str(), filename, imported, updated, skipped))
+    db.execute("DELETE FROM upload_staging WHERE batch=?", (batch,))
     db.commit()
-    flash(f"Upload complete: {imported} records imported"
-          + (f", {skipped} rows skipped (bad CNIC or missing name)." if skipped else "."))
+    session.pop("upload_batch", None)
+    session.pop("upload_file", None)
+    log_audit("Upload applied", f"{filename} — {imported} new, {updated} updated, "
+              f"{skipped} skipped (backup saved first)")
+    flash(f"Upload complete: {imported} new record(s), {updated} updated"
+          + (f", {skipped} invalid row(s) skipped." if skipped else "."))
+    return redirect(url_for("admin_upload_page"))
+
+
+@app.route("/admin/upload/cancel", methods=["POST"])
+@admin_required
+def admin_upload_cancel():
+    batch = session.get("upload_batch")
+    if batch:
+        db = get_db()
+        db.execute("DELETE FROM upload_staging WHERE batch=?", (batch,))
+        db.commit()
+    session.pop("upload_batch", None)
+    session.pop("upload_file", None)
+    flash("Upload cancelled — nothing was saved.")
     return redirect(url_for("admin_upload_page"))
 
 
