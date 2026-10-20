@@ -208,8 +208,8 @@ tbody tr:hover { background: #fafbff; }
   border-radius: 18px; padding: 20px 20px 16px; overflow: hidden;
   background: linear-gradient(180deg, #fbfbff, #fff); }
 .vfy-beam { position: absolute; left: 0; right: 0; top: -30%; height: 34%; z-index: 0;
-  background: linear-gradient(180deg, transparent, rgba(45,50,144,.10), rgba(106,111,240,.16), transparent);
-  animation: vbeam 2.6s ease-in-out infinite; pointer-events: none; }
+  background: linear-gradient(180deg, transparent, rgba(45,50,144,.16), rgba(106,111,240,.26), transparent);
+  animation: vbeam 3.1s ease-in-out infinite; pointer-events: none; }
 @keyframes vbeam { 0% { top: -35%; } 55% { top: 105%; } 100% { top: 105%; } }
 .vfy-head { position: relative; z-index: 1; display: flex; align-items: center; gap: 15px; margin-bottom: 16px; }
 .vfy-logo-ring { position: relative; width: 64px; height: 64px; flex: none; }
