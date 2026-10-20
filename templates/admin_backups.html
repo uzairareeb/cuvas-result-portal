@@ -22,7 +22,7 @@
           <td style="text-align:right;white-space:nowrap">
             <a class="btn ghost sm" href="{{ url_for('admin_backup_download', bid=r.id) }}">Download CSV</a>
             <form method="post" action="{{ url_for('admin_backup_restore', bid=r.id) }}" style="display:inline"
-                  onsubmit="return confirm('Restore backup #{{ r.id }}? This replaces ALL current records.')">
+                  data-confirm="Restore backup #{{ r.id }}? This replaces ALL current records — a safety backup of the current data is saved first." data-confirm-danger="1" data-confirm-title="Restore this backup?" data-confirm-yes="Yes, Restore">
               <button type="submit" class="btn danger sm">Restore</button>
             </form>
           </td>

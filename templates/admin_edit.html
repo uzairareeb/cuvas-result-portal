@@ -7,7 +7,7 @@
     <span class="section-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg></span>
     <h3>Edit Record &mdash; {{ student.name }}</h3>
   </div>
-  <form method="post">
+  <form method="post" data-confirm="Save the changes to this student's record?" data-confirm-title="Update record?" data-confirm-yes="Yes, Save Changes">
     <div class="grid2">
       <div>
         <label class="f-label" for="name">Name</label>

@@ -20,12 +20,12 @@
           <td style="text-align:right">
             {% if not s.is_active %}
             <form method="post" action="{{ url_for('admin_sessions_activate', sid=s.id) }}" style="display:inline">
-              <button class="btn small" type="submit">Make Active</button>
+              <button class="btn small" type="submit" data-confirm="Make '{{ s.name }}' the active session? Students will see this session selected by default on the portal." data-confirm-title="Change active session?" data-confirm-yes="Yes, Make Active">Make Active</button>
             </form>
             {% endif %}
             {% if s.count == 0 and not s.is_active %}
             <form method="post" action="{{ url_for('admin_sessions_delete', sid=s.id) }}" style="display:inline">
-              <button class="btn small danger" type="submit">Delete</button>
+              <button class="btn small danger" type="submit" data-confirm="Delete the empty session '{{ s.name }}'? This cannot be undone." data-confirm-danger="1" data-confirm-title="Delete this session?" data-confirm-yes="Yes, Delete">Delete</button>
             </form>
             {% endif %}
           </td>

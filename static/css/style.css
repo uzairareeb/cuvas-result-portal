@@ -414,3 +414,47 @@ form .grid2 { margin-bottom: 16px; }
 .quicksearch input { border: none; background: transparent; outline: none; padding: 8px 0;
   font: inherit; font-size: 13.5px; width: 190px; color: var(--ink); }
 @media (max-width: 560px) { .quicksearch input { width: 118px; } }
+
+/* ---------- admin: confirmation modal + done popup ---------- */
+.btn.danger-solid { background: var(--bad); color: #fff; border-color: var(--bad); }
+.btn.danger-solid:hover { background: #8f1d16; }
+.amodal-overlay { position: fixed; inset: 0; z-index: 200; background: rgba(16,20,38,.55);
+  backdrop-filter: blur(3px); display: flex; align-items: center; justify-content: center;
+  padding: 18px; opacity: 0; transition: opacity .18s ease; }
+.amodal-overlay.show { opacity: 1; }
+.amodal { background: #fff; border-radius: 18px; max-width: 400px; width: 100%;
+  padding: 28px 26px 22px; text-align: center; box-shadow: 0 24px 60px rgba(10,14,40,.35);
+  transform: translateY(10px) scale(.97); transition: transform .18s ease; }
+.amodal-overlay.show .amodal { transform: none; }
+.amodal h3 { margin: 12px 0 6px; font-size: 19px; }
+.amodal p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.55; }
+.amodal-icon { display: inline-flex; width: 58px; height: 58px; border-radius: 50%;
+  align-items: center; justify-content: center; background: #eef0ff; color: var(--brand); }
+.amodal-icon.danger { background: var(--bad-bg); color: var(--bad); }
+.amodal-icon svg { width: 29px; height: 29px; }
+.amodal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 22px; }
+.done-visual { display: block; height: 88px; }
+.done-visual .mark-svg { margin: 0 auto; }
+.trash-svg { width: 88px; height: 88px; margin: 0 auto; display: block;
+  animation: lmarkpop .45s cubic-bezier(.2,1.6,.4,1) both;
+  filter: drop-shadow(0 6px 16px rgba(179,38,30,.3)); }
+.trash-svg .trash-ring { fill: none; stroke: var(--bad); stroke-width: 2.6;
+  stroke-linecap: round; stroke-dasharray: 151; stroke-dashoffset: 151;
+  transform: rotate(-90deg); transform-origin: center;
+  animation: ldraw .7s .1s ease forwards; }
+.trash-svg path { fill: none; stroke: var(--bad); stroke-width: 2.6;
+  stroke-linecap: round; stroke-linejoin: round; }
+.trash-svg .trash-lid, .trash-svg .trash-handle { transform-origin: 17px 18.5px;
+  animation: lidFlip 1s .45s ease both; }
+@keyframes lidFlip {
+  0% { transform: rotate(0deg); }
+  35% { transform: rotate(-26deg) translateY(-1.5px); }
+  70% { transform: rotate(4deg); }
+  100% { transform: rotate(0deg); }
+}
+.trash-svg .trash-bin { animation: binDrop .8s .45s ease both; }
+@keyframes binDrop {
+  0% { transform: translateY(0); }
+  40% { transform: translateY(1.6px); }
+  100% { transform: translateY(0); }
+}

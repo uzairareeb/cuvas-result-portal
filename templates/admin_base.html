@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=5">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=6">
 </head>
 <body class="admin-body">
   <div class="sidebar" id="sidebar">
@@ -80,10 +80,40 @@
       </form>
     </div>
     <div class="admin-content">
-      {% with msgs = get_flashed_messages() %}
-        {% if msgs %}<div class="flash">{% for m in msgs %}<p><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>{{ m }}</p>{% endfor %}</div>{% endif %}
+      {% with msgs = get_flashed_messages(with_categories=true) %}
+        {% if msgs %}
+        <div id="flashData" hidden>
+          {% for cat, m in msgs %}<span data-cat="{{ cat }}">{{ m }}</span>{% endfor %}
+        </div>
+        <noscript><div class="flash">{% for cat, m in msgs %}<p>{{ m }}</p>{% endfor %}</div></noscript>
+        {% endif %}
       {% endwith %}
       {% block content %}{% endblock %}
+    </div>
+  </div>
+
+  <!-- Confirmation modal (shown before delete / update / change actions) -->
+  <div class="amodal-overlay" id="confirmOverlay" hidden>
+    <div class="amodal" role="alertdialog" aria-modal="true" aria-labelledby="confirmTitle">
+      <span class="amodal-icon" id="confirmIcon"></span>
+      <h3 id="confirmTitle">Are you sure?</h3>
+      <p id="confirmText"></p>
+      <div class="amodal-actions">
+        <button type="button" class="btn ghost" id="confirmCancel">Cancel</button>
+        <button type="button" class="btn primary" id="confirmYes">Yes, Continue</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- "Work done" popup (shown after an action completes) -->
+  <div class="amodal-overlay" id="doneOverlay" hidden>
+    <div class="amodal" role="alertdialog" aria-modal="true">
+      <span class="done-visual" id="doneVisual"></span>
+      <h3 id="doneTitle">Done</h3>
+      <p id="doneText"></p>
+      <div class="amodal-actions" style="justify-content:center">
+        <button type="button" class="btn primary" id="doneOk">OK</button>
+      </div>
     </div>
   </div>
   <script>
@@ -96,6 +126,125 @@
         sb.classList.remove('open'); ov.classList.remove('show');
       });
     })();
+  </script>
+  <script>
+  (function () {
+    /* ---------- confirmation modal ---------- */
+    var overlay = document.getElementById('confirmOverlay'),
+        cTitle = document.getElementById('confirmTitle'),
+        cText = document.getElementById('confirmText'),
+        cIcon = document.getElementById('confirmIcon'),
+        cYes = document.getElementById('confirmYes'),
+        cCancel = document.getElementById('confirmCancel'),
+        pending = null;
+    var ICON_WARN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
+    var ICON_Q = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
+    function openConfirm(o) {
+      pending = o;
+      cTitle.textContent = o.title;
+      cText.textContent = o.msg;
+      cIcon.innerHTML = o.danger ? ICON_WARN : ICON_Q;
+      cIcon.className = 'amodal-icon' + (o.danger ? ' danger' : '');
+      cYes.textContent = o.yes;
+      cYes.className = 'btn ' + (o.danger ? 'danger-solid' : 'primary');
+      overlay.hidden = false;
+      requestAnimationFrame(function () { overlay.classList.add('show'); });
+      (o.danger ? cCancel : cYes).focus();
+    }
+    function closeConfirm() {
+      overlay.classList.remove('show');
+      overlay.hidden = true;
+      pending = null;
+    }
+    cCancel.addEventListener('click', closeConfirm);
+    overlay.addEventListener('click', function (e) { if (e.target === overlay) closeConfirm(); });
+    cYes.addEventListener('click', function () {
+      var o = pending; closeConfirm();
+      if (o && o.onYes) o.onYes();
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && !overlay.hidden) closeConfirm();
+    });
+    /* Buttons carrying data-confirm (incl. bulk-action buttons outside the form) */
+    document.addEventListener('click', function (e) {
+      var btn = e.target.closest ? e.target.closest('[data-confirm]') : null;
+      if (!btn || btn.tagName !== 'BUTTON' && btn.tagName !== 'INPUT') return;
+      var form = btn.form;
+      if (!form) return;
+      e.preventDefault();
+      var danger = btn.getAttribute('data-confirm-danger') === '1';
+      openConfirm({
+        msg: btn.getAttribute('data-confirm'),
+        danger: danger,
+        title: btn.getAttribute('data-confirm-title') || (danger ? 'Are you sure?' : 'Please confirm'),
+        yes: btn.getAttribute('data-confirm-yes') || (danger ? 'Yes, Delete' : 'Yes, Continue'),
+        onYes: function () { form.requestSubmit(btn); }
+      });
+    });
+    /* Forms carrying data-confirm themselves */
+    document.addEventListener('submit', function (e) {
+      var f = e.target;
+      if (!f.getAttribute || !f.getAttribute('data-confirm') || f.getAttribute('data-confirmed') === '1') return;
+      e.preventDefault();
+      var danger = f.getAttribute('data-confirm-danger') === '1';
+      var submitter = e.submitter || null;
+      openConfirm({
+        msg: f.getAttribute('data-confirm'),
+        danger: danger,
+        title: f.getAttribute('data-confirm-title') || (danger ? 'Are you sure?' : 'Please confirm'),
+        yes: f.getAttribute('data-confirm-yes') || (danger ? 'Yes, Delete' : 'Yes, Save'),
+        onYes: function () {
+          f.setAttribute('data-confirmed', '1');
+          if (submitter) f.requestSubmit(submitter); else f.requestSubmit();
+          setTimeout(function () { f.removeAttribute('data-confirmed'); }, 0);
+        }
+      });
+    });
+
+    /* ---------- "work done" popup (from flash messages) ---------- */
+    var doneOverlay = document.getElementById('doneOverlay'),
+        dVisual = document.getElementById('doneVisual'),
+        dTitle = document.getElementById('doneTitle'),
+        dText = document.getElementById('doneText'),
+        dOk = document.getElementById('doneOk'),
+        queue = [], showing = false, timer = null;
+    var VISUALS = {
+      ok: '<svg class="mark-svg success" viewBox="0 0 52 52" aria-hidden="true"><circle cx="26" cy="26" r="24"></circle><path class="mark-check" d="M14.5 27.5l7.5 7.5L37.5 19"></path></svg>',
+      err: '<svg class="mark-svg fail" viewBox="0 0 52 52" aria-hidden="true"><circle cx="26" cy="26" r="24"></circle><path class="mark-cross d1" d="M18 18l16 16"></path><path class="mark-cross d2" d="M34 18L18 34"></path></svg>',
+      del: '<svg class="trash-svg" viewBox="0 0 52 52" aria-hidden="true"><circle class="trash-ring" cx="26" cy="26" r="24"></circle><g class="trash-bin"><path class="trash-handle" d="M22 15h8"/><path class="trash-lid" d="M16.5 18.5h19"/><path class="trash-body" d="M19.5 18.5l1.6 17a2.5 2.5 0 0 0 2.5 2.3h4.8a2.5 2.5 0 0 0 2.5-2.3l1.6-17"/><path class="trash-line" d="M24 23v9M28 23v9"/></g></svg>'
+    };
+    var TITLES = { ok: 'Work Done', del: 'Deleted', err: 'Please Note' };
+    function showNext() {
+      var item = queue.shift();
+      if (!item) { showing = false; return; }
+      showing = true;
+      var kind = (item.cat === 'del' || item.cat === 'err') ? item.cat : 'ok';
+      dVisual.innerHTML = VISUALS[kind];
+      dVisual.className = 'done-visual ' + kind;
+      dTitle.textContent = TITLES[kind];
+      dText.textContent = item.msg;
+      doneOverlay.hidden = false;
+      requestAnimationFrame(function () { doneOverlay.classList.add('show'); });
+      dOk.focus();
+      clearTimeout(timer);
+      timer = setTimeout(hideDone, 5000);
+    }
+    function hideDone() {
+      clearTimeout(timer);
+      doneOverlay.classList.remove('show');
+      doneOverlay.hidden = true;
+      setTimeout(showNext, 120);
+    }
+    dOk.addEventListener('click', hideDone);
+    doneOverlay.addEventListener('click', function (e) { if (e.target === doneOverlay) hideDone(); });
+    var fd = document.getElementById('flashData');
+    if (fd) {
+      var spans = fd.querySelectorAll('span[data-cat]');
+      for (var i = 0; i < spans.length; i++)
+        queue.push({ cat: spans[i].getAttribute('data-cat'), msg: spans[i].textContent });
+      if (queue.length) showNext();
+    }
+  })();
   </script>
 </body>
 </html>
