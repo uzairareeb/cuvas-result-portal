@@ -43,4 +43,68 @@
     <a class="btn" href="{{ url_for('index') }}">Check Another CNIC</a>
   </div>
 </div>
+{% if card.status == 'Qualified' %}
+<div class="celebrate-toast" id="celebrateToast" role="status" aria-live="polite">
+  <span class="ct-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>
+  <div class="ct-text"><strong>Congratulations!</strong><span>You have qualified the entry test.</span></div>
+  <button type="button" class="ct-close" id="celebrateClose" aria-label="Dismiss">&times;</button>
+</div>
+<canvas id="confettiCanvas" aria-hidden="true"></canvas>
+<script>
+(function () {
+  /* Skip the celebration for users who prefer reduced motion. */
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+  var toast = document.getElementById('celebrateToast');
+  document.getElementById('celebrateClose').addEventListener('click', function () {
+    toast.classList.add('ct-hide');
+  });
+  setTimeout(function () { toast.classList.add('ct-hide'); }, 6000);
+
+  var canvas = document.getElementById('confettiCanvas');
+  var ctx = canvas.getContext('2d');
+  function sizeCanvas() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+  sizeCanvas();
+  window.addEventListener('resize', sizeCanvas);
+
+  var COLORS = ['#2d3290', '#12805c', '#d9a821', '#6a6ff0', '#f5d67b', '#ffffff'];
+  var pieces = [];
+  for (var i = 0; i < 140; i++) {
+    pieces.push({
+      x: Math.random() * canvas.width,
+      y: -20 - Math.random() * canvas.height * 0.35,
+      w: 5 + Math.random() * 6,
+      h: 8 + Math.random() * 8,
+      vy: 2 + Math.random() * 3.2,
+      vx: -1.2 + Math.random() * 2.4,
+      rot: Math.random() * Math.PI * 2,
+      vr: -0.12 + Math.random() * 0.24,
+      color: COLORS[i % COLORS.length],
+      sway: Math.random() * Math.PI * 2,
+      swayAmp: 0.6 + Math.random() * 1.4
+    });
+  }
+  var start = performance.now(), DURATION = 3400, running = true;
+  function frame(now) {
+    if (!running) return;
+    var elapsed = now - start;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (elapsed < DURATION) requestAnimationFrame(frame); else { running = false; canvas.remove(); return; }
+    var fade = 1 - elapsed / DURATION;
+    for (var j = 0; j < pieces.length; j++) {
+      var p = pieces[j];
+      p.sway += 0.03; p.x += p.vx + Math.sin(p.sway) * p.swayAmp; p.y += p.vy; p.rot += p.vr;
+      if (p.y > canvas.height + 30) continue;
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, fade * 1.6);
+      ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+      ctx.fillStyle = p.color;
+      ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+      ctx.restore();
+    }
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+{% endif %}
 {% endblock %}
