@@ -1435,6 +1435,251 @@ def admin_clear():
     return redirect(url_for("admin_students"))
 
 
+# ---------------- admin: one-page summary report (PDF) ----------------
+@app.route("/admin/summary-pdf")
+@admin_required
+def admin_summary_pdf():
+    """One-page, print-ready summary of a whole entry test for the office file:
+    KPIs, program split, degree-wise table, marks snapshot and top scorers."""
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib import colors
+    from reportlab.pdfgen import canvas as rl_canvas
+
+    sid = _session_arg_id()
+    act = active_session()
+    sess_row = None
+    for s in get_sessions():
+        if s["id"] == sid:
+            sess_row = s
+    sess_name = sess_row["name"] if sess_row else (act["name"] if act else "")
+    db = get_db()
+    if sid:
+        rows = [dict(r) for r in db.fetchall(
+            "SELECT * FROM candidates WHERE session_id=?", (sid,))]
+    else:
+        rows = [dict(r) for r in db.fetchall("SELECT * FROM candidates")]
+    for r in rows:
+        r["program"] = r.get("program") or "PhD"
+        _, r["status"] = calc_result(r.get("obtained"), r.get("total"),
+                                     program_passing_pct(r["program"]))
+        r["pct"] = obtained_pct(r.get("obtained"), r.get("total"))
+    total = len(rows)
+    qual = sum(1 for r in rows if r["status"] == "Qualified")
+    pass_rate = round(qual / total * 100, 1) if total else 0.0
+    progs = []
+    for prog in ("PhD", "MPhil"):
+        pr = [r for r in rows if r["program"] == prog]
+        pq = sum(1 for r in pr if r["status"] == "Qualified")
+        progs.append({"program": prog, "total": len(pr), "qualified": pq,
+                      "rate": round(pq / len(pr) * 100, 1) if pr else 0.0})
+    degmap = {}
+    for r in rows:
+        key = ((r.get("discipline") or "—").strip() or "—", r["program"])
+        d = degmap.setdefault(key, {"degree": key[0], "program": key[1],
+                                    "total": 0, "qualified": 0})
+        d["total"] += 1
+        if r["status"] == "Qualified":
+            d["qualified"] += 1
+    degs = sorted(degmap.values(), key=lambda d: (-d["total"], d["degree"]))
+    CAP = 16
+    if len(degs) > CAP:
+        rest = degs[CAP - 1:]
+        degs = degs[:CAP - 1] + [{"degree": f"All other degrees ({len(rest)})",
+                                  "program": "—",
+                                  "total": sum(d["total"] for d in rest),
+                                  "qualified": sum(d["qualified"] for d in rest)}]
+    for d in degs:
+        d["rate"] = round(d["qualified"] / d["total"] * 100, 1) if d["total"] else 0.0
+    scored = [r for r in rows if r["pct"] is not None]
+    top5 = sorted(scored, key=lambda r: (-r["pct"], -(r.get("obtained") or 0)))[:5]
+    avg_pct = round(sum(r["pct"] for r in scored) / len(scored), 1) if scored else 0.0
+    dates = sorted({fmt_date(parse_date(r.get("test_date") or ""))
+                    for r in rows if parse_date(r.get("test_date") or "")})
+    held = ", ".join(d for d in dates if d) or "—"
+
+    INDIGO = colors.HexColor("#2d3290")
+    INK = colors.HexColor("#1a1f36")
+    MUTED = colors.HexColor("#667085")
+    LINE = colors.HexColor("#d7dbea")
+    OKC = colors.HexColor("#12805c")
+    BADC = colors.HexColor("#b3261e")
+    LIGHT = colors.HexColor("#eef0fb")
+
+    buf = io.BytesIO()
+    W, H = A4
+    c = rl_canvas.Canvas(buf, pagesize=A4)
+    M = 42            # margin
+    CW = W - 2 * M    # content width
+
+    # header band
+    c.setFillColor(INDIGO)
+    c.rect(0, H - 66, W, 66, stroke=0, fill=1)
+    logo_path = os.path.join(BASE_DIR, "static", "img", "cuvas-logo.png")
+    if os.path.exists(logo_path):
+        try:
+            c.setFillColor(colors.white)
+            c.roundRect(M, H - 56, 46, 46, 6, stroke=0, fill=1)
+            c.drawImage(logo_path, M + 4, H - 52, 38, 38,
+                        preserveAspectRatio=True, mask="auto")
+        except Exception:
+            pass
+    c.setFillColor(colors.white)
+    c.setFont("Helvetica-Bold", 12.5)
+    c.drawString(M + 58, H - 34, "Cholistan University of Veterinary & Animal Sciences, Bahawalpur")
+    c.setFont("Helvetica", 9.5)
+    c.drawString(M + 58, H - 50, "Directorate of Advanced Studies & Research  •  Entry Test Result Portal")
+    c.setFont("Helvetica-Bold", 9)
+    c.drawRightString(W - M, H - 34, "SUMMARY REPORT")
+    c.setFont("Helvetica", 8.5)
+    c.drawRightString(W - M, H - 50, "For Official Use")
+
+    y = H - 66 - 30
+    c.setFillColor(INK)
+    c.setFont("Helvetica-Bold", 15.5)
+    c.drawString(M, y, "Entry Test Result — Summary Report")
+    y -= 16
+    c.setFillColor(MUTED)
+    c.setFont("Helvetica", 9.5)
+    c.drawString(M, y, f"Session: {sess_name}    •    Test held: {held}    •    "
+                 f"Passing criteria: PhD {fmt_num(program_passing_pct('PhD'))}%  •  "
+                 f"MPhil {fmt_num(program_passing_pct('MPhil'))}%")
+    y -= 10
+    c.setStrokeColor(LINE); c.setLineWidth(1)
+    c.line(M, y, W - M, y)
+
+    # KPI boxes
+    y -= 62
+    kpis = [("Total Candidates", str(total), INK),
+            ("Qualified", str(qual), OKC),
+            ("Not Qualified", str(total - qual), BADC),
+            ("Overall Pass Rate", f"{fmt_num(pass_rate)}%", INDIGO)]
+    bw = (CW - 3 * 10) / 4
+    for i, (label, val, col) in enumerate(kpis):
+        x = M + i * (bw + 10)
+        c.setFillColor(LIGHT)
+        c.roundRect(x, y, bw, 48, 8, stroke=0, fill=1)
+        c.setFillColor(col)
+        c.setFont("Helvetica-Bold", 17)
+        c.drawCentredString(x + bw / 2, y + 26, val)
+        c.setFillColor(MUTED)
+        c.setFont("Helvetica", 8)
+        c.drawCentredString(x + bw / 2, y + 10, label.upper())
+
+    # program split (left) + top scorers (right)
+    y -= 28
+    colw = (CW - 18) / 2
+    c.setFillColor(INK); c.setFont("Helvetica-Bold", 11)
+    c.drawString(M, y, "Program-wise Result")
+    c.drawString(M + colw + 18, y, "Top Scorers")
+    y -= 8
+    # program table
+    ty = y
+    headers = ["Program", "Candidates", "Qualified", "Pass %"]
+    widths = [colw * .34, colw * .24, colw * .22, colw * .20]
+    c.setFillColor(INDIGO)
+    c.roundRect(M, ty - 16, colw, 16, 3, stroke=0, fill=1)
+    c.setFillColor(colors.white); c.setFont("Helvetica-Bold", 8.5)
+    x = M + 6
+    for htxt, wdt in zip(headers, widths):
+        c.drawString(x, ty - 11.5, htxt); x += wdt
+    ty -= 16
+    body = progs + [{"program": "Overall", "total": total, "qualified": qual,
+                     "rate": pass_rate}]
+    for i, p in enumerate(body):
+        ty -= 15
+        if i % 2 == 0:
+            c.setFillColor(colors.HexColor("#f6f7fc"))
+            c.rect(M, ty - 3.5, colw, 15, stroke=0, fill=1)
+        c.setFillColor(INK)
+        c.setFont("Helvetica-Bold" if p["program"] == "Overall" else "Helvetica", 9)
+        vals = [p["program"], str(p["total"]), str(p["qualified"]),
+                f"{fmt_num(p['rate'])}%"]
+        x = M + 6
+        for v, wdt in zip(vals, widths):
+            c.drawString(x, ty, v); x += wdt
+    # top scorers list
+    ty2 = y
+    c.setFillColor(INDIGO)
+    c.roundRect(M + colw + 18, ty2 - 16, colw, 16, 3, stroke=0, fill=1)
+    c.setFillColor(colors.white); c.setFont("Helvetica-Bold", 8.5)
+    c.drawString(M + colw + 24, ty2 - 11.5, "Candidate — Degree (Program)")
+    c.drawRightString(M + colw + 18 + colw - 6, ty2 - 11.5, "Score")
+    ty2 -= 16
+    if not top5:
+        c.setFillColor(MUTED); c.setFont("Helvetica", 9)
+        c.drawString(M + colw + 24, ty2 - 11, "No scored records yet.")
+    for i, r in enumerate(top5):
+        ty2 -= 15
+        if i % 2 == 0:
+            c.setFillColor(colors.HexColor("#f6f7fc"))
+            c.rect(M + colw + 18, ty2 - 3.5, colw, 15, stroke=0, fill=1)
+        c.setFillColor(INK); c.setFont("Helvetica", 8.8)
+        line = f"{i + 1}. {r.get('name') or ''} — {r.get('discipline') or ''} ({r['program']})"
+        while c.stringWidth(line, "Helvetica", 8.8) > colw - 70 and len(line) > 10:
+            line = line[:-2]
+        c.drawString(M + colw + 24, ty2, line)
+        c.setFont("Helvetica-Bold", 8.8)
+        c.drawRightString(M + colw + 18 + colw - 6, ty2,
+                          f"{fmt_num(r.get('obtained'))}/{fmt_num(r.get('total'))} ({fmt_num(r['pct'])}%)")
+    y = min(ty, ty2) - 16
+    c.setFillColor(MUTED); c.setFont("Helvetica", 9)
+    c.drawString(M, y, f"Marks snapshot:  Highest {fmt_num(max((r['pct'] for r in scored), default=0))}%"
+                 f"   •   Average {fmt_num(avg_pct)}%"
+                 f"   •   Lowest {fmt_num(min((r['pct'] for r in scored), default=0))}%")
+
+    # degree-wise table
+    y -= 26
+    c.setFillColor(INK); c.setFont("Helvetica-Bold", 11)
+    c.drawString(M, y, "Degree-wise Result")
+    y -= 8
+    dwidths = [CW * .46, CW * .14, CW * .15, CW * .13, CW * .12]
+    dheads = ["Degree / Discipline", "Program", "Candidates", "Qualified", "Pass %"]
+    c.setFillColor(INDIGO)
+    c.roundRect(M, y - 17, CW, 17, 3, stroke=0, fill=1)
+    c.setFillColor(colors.white); c.setFont("Helvetica-Bold", 8.5)
+    x = M + 6
+    for htxt, wdt in zip(dheads, dwidths):
+        c.drawString(x, y - 12, htxt); x += wdt
+    y -= 17
+    for i, d in enumerate(degs):
+        y -= 15.5
+        if i % 2 == 0:
+            c.setFillColor(colors.HexColor("#f6f7fc"))
+            c.rect(M, y - 3.5, CW, 15.5, stroke=0, fill=1)
+        c.setFillColor(INK); c.setFont("Helvetica", 9)
+        vals = [d["degree"], d["program"], str(d["total"]), str(d["qualified"]),
+                f"{fmt_num(d['rate'])}%"]
+        x = M + 6
+        for v, wdt in zip(vals, dwidths):
+            vv = v
+            while c.stringWidth(vv, "Helvetica", 9) > wdt - 10 and len(vv) > 8:
+                vv = vv[:-2]
+            c.drawString(x, y, vv); x += wdt
+    if not degs:
+        y -= 15
+        c.setFillColor(MUTED); c.setFont("Helvetica", 9)
+        c.drawString(M + 6, y, "No records in this session yet.")
+
+    # footer: signatures + generated line (fixed at page bottom)
+    fy = 74
+    c.setStrokeColor(LINE)
+    c.line(M, fy + 26, M + 170, fy + 26)
+    c.line(W - M - 190, fy + 26, W - M, fy + 26)
+    c.setFillColor(INK); c.setFont("Helvetica", 9)
+    c.drawString(M, fy + 12, "Prepared by (DAS Office)")
+    c.drawRightString(W - M, fy + 12, "Director, Advanced Studies & Research")
+    c.setFillColor(MUTED); c.setFont("Helvetica", 8)
+    c.drawCentredString(W / 2, 40, f"Generated from the CUVAS Result Portal on "
+                            f"{datetime.now().strftime('%d %b %Y, %I:%M %p')} — for official record only.")
+    c.showPage()
+    c.save()
+    buf.seek(0)
+    log_audit("Summary report downloaded", f"session '{sess_name}' — {total} record(s)")
+    fname = "CUVAS_Summary_Report_" + re.sub(r"[^A-Za-z0-9]+", "_", sess_name).strip("_") + ".pdf"
+    return send_file(buf, mimetype="application/pdf", as_attachment=True,
+                     download_name=fname)
+
+
 # ---------------- admin: test sessions ----------------
 @app.route("/admin/sessions")
 @admin_required
