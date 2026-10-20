@@ -4,8 +4,44 @@
   <div class="hero-badge">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
   </div>
+  {% if announce %}
+  <h2>{{ announce.title }}</h2>
+  {% if announce.message %}<p class="lede">{{ announce.message }}</p>{% endif %}
+  <p class="announce-when">The result will be announced on<br><strong>{{ announce.when_disp }}</strong></p>
+  <div class="cd-row" id="cdRow" role="timer" aria-label="Time remaining until the result announcement">
+    <div class="cd-box"><span class="cd-num" id="cdDays">--</span><span class="cd-lab">Days</span></div>
+    <div class="cd-sep">:</div>
+    <div class="cd-box"><span class="cd-num" id="cdHours">--</span><span class="cd-lab">Hours</span></div>
+    <div class="cd-sep">:</div>
+    <div class="cd-box"><span class="cd-num" id="cdMins">--</span><span class="cd-lab">Minutes</span></div>
+  </div>
+  <p class="cd-note" id="cdNote">Please visit this page again after the announcement time to check your result.</p>
+  <script>
+  (function () {
+    var target = new Date("{{ announce.iso }}").getTime();
+    var dEl = document.getElementById('cdDays'), hEl = document.getElementById('cdHours'),
+        mEl = document.getElementById('cdMins'), note = document.getElementById('cdNote');
+    function pad(n) { return (n < 10 ? '0' : '') + n; }
+    function tick() {
+      var diff = target - Date.now();
+      if (diff <= 0) {
+        dEl.textContent = '00'; hEl.textContent = '00'; mEl.textContent = '00';
+        note.textContent = 'The announcement time has arrived. Results will be available very shortly — please check back in a few minutes.';
+        return;
+      }
+      var mins = Math.floor(diff / 60000);
+      dEl.textContent = pad(Math.floor(mins / 1440));
+      hEl.textContent = pad(Math.floor((mins % 1440) / 60));
+      mEl.textContent = pad(mins % 60);
+      setTimeout(tick, 1000);
+    }
+    tick();
+  })();
+  </script>
+  {% else %}
   <h2>Results Not Published Yet</h2>
   <p class="lede">The entry test results have not been published. Please check back later.</p>
   <a class="btn ghost" href="{{ url_for('index') }}">Back to Home</a>
+  {% endif %}
 </div>
 {% endblock %}

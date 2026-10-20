@@ -666,7 +666,22 @@ def build_card(r):
 @app.route("/", methods=["GET", "POST"])
 def index():
     if get_setting("published", "1") != "1":
-        return render_template("unpublished.html", uni=UNI_NAME, title=PORTAL_TITLE)
+        ann = None
+        if get_setting("announce_enabled", "0") == "1":
+            raw = get_setting("announce_at", "").strip()
+            when = None
+            try:
+                when = datetime.strptime(raw, "%Y-%m-%dT%H:%M")
+            except (TypeError, ValueError):
+                when = None
+            if when is not None:
+                ann = {"title": get_setting("announce_title", "").strip()
+                       or "Result Announcement",
+                       "message": get_setting("announce_message", "").strip(),
+                       "iso": raw + ":00+05:00",
+                       "when_disp": when.strftime("%d %B %Y, %I:%M %p")}
+        return render_template("unpublished.html", uni=UNI_NAME,
+                               title=PORTAL_TITLE, announce=ann)
     error = None
     if request.method == "POST":
         cnic = norm_cnic(request.form.get("cnic", ""))
@@ -1062,6 +1077,10 @@ def admin_upload_page():
                            phd_notice_date=get_setting("phd_notice_date", ""),
                            mphil_notice=get_setting("mphil_notice", ""),
                            mphil_notice_date=get_setting("mphil_notice_date", ""),
+                           announce_enabled=get_setting("announce_enabled", "0") == "1",
+                           announce_title=get_setting("announce_title", ""),
+                           announce_message=get_setting("announce_message", ""),
+                           announce_at=get_setting("announce_at", ""),
                            history=history)
 
 
@@ -1089,6 +1108,10 @@ def admin_settings():
     set_setting("phd_notice_date", request.form.get("phd_notice_date", "").strip())
     set_setting("mphil_notice", request.form.get("mphil_notice", "").strip())
     set_setting("mphil_notice_date", request.form.get("mphil_notice_date", "").strip())
+    set_setting("announce_enabled", "1" if request.form.get("announce_enabled") else "0")
+    set_setting("announce_title", request.form.get("announce_title", "").strip())
+    set_setting("announce_message", request.form.get("announce_message", "").strip())
+    set_setting("announce_at", request.form.get("announce_at", "").strip())
     log_audit("Settings updated",
               f"PhD passing {_clean_pct(phd)}%, MPhil passing {_clean_pct(mphil)}%, "
               f"portal {'published' if request.form.get('published') else 'hidden'}")

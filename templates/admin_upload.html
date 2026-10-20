@@ -89,6 +89,26 @@
     </div>
   </div>
 
+  <div class="card section">
+    <div class="section-head">
+      <span class="section-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></span>
+      <h3>Announcement Mode — “Result Coming Soon” + Countdown</h3>
+    </div>
+    <p class="hint" style="margin-top:0">While results are <strong>unpublished</strong>, turn this on to show students an announcement with a live countdown (Days : Hours : Minutes) instead of the plain “not published” page. As soon as you tick <strong>Publish results</strong> above and save, the normal result search comes back automatically. Everything is shown in English.</p>
+    <label class="check-row">
+      <input type="checkbox" name="announce_enabled" value="1" {% if announce_enabled %}checked{% endif %}>
+      <span><strong>Enable announcement mode</strong><br><span class="hint">Only takes effect while “Publish results” is off.</span></span>
+    </label>
+    <div style="margin-top:12px">
+      <label class="f-label" for="announce_title">Announcement title</label>
+      <input type="text" class="no-icon" id="announce_title" name="announce_title" value="{{ announce_title }}" placeholder="e.g. Result Announcement">
+      <label class="f-label" for="announce_message" style="margin-top:10px">Announcement message</label>
+      <input type="text" class="no-icon" id="announce_message" name="announce_message" value="{{ announce_message }}" placeholder="e.g. The Entry Test result will be announced on the date and time below. Please visit again then.">
+      <label class="f-label" for="announce_at" style="margin-top:10px">Announcement date &amp; time</label>
+      <input type="datetime-local" class="no-icon" id="announce_at" name="announce_at" value="{{ announce_at }}" style="max-width:280px">
+    </div>
+  </div>
+
   <button type="submit" class="btn primary">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
     Save Settings &amp; Announcements
