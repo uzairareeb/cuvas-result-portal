@@ -51,7 +51,14 @@
       ev.preventDefault();
       var url = a.getAttribute('href');
       showToast('Downloading your PDF…', true);
-      fetch(url, { credentials: 'same-origin' }).then(function (resp) {
+      /* Try the blob route first (fixes browsers that display PDFs
+         inline), but never get stuck on it: if the fetch/blob has not
+         finished within 3 seconds, fall back to the classic download
+         navigation, which the server's attachment header handles. */
+      var ctrl = ('AbortController' in window) ? new AbortController() : null;
+      var killer = setTimeout(function () { if (ctrl) ctrl.abort(); }, 3000);
+      fetch(url, { credentials: 'same-origin',
+                   signal: ctrl ? ctrl.signal : undefined }).then(function (resp) {
         if (!resp.ok) throw new Error('bad response');
         var name = 'CUVAS_Result_Card.pdf';
         var cd = resp.headers.get('Content-Disposition') || '';
@@ -59,6 +66,7 @@
         if (m) name = m[1];
         return resp.blob().then(function (blob) { return { blob: blob, name: name }; });
       }).then(function (out) {
+        clearTimeout(killer);
         var objUrl = URL.createObjectURL(out.blob);
         var tmp = document.createElement('a');
         tmp.href = objUrl;
@@ -69,11 +77,12 @@
         setTimeout(function () { URL.revokeObjectURL(objUrl); }, 4000);
         showToast('Downloaded ✓ — please check your Downloads folder.');
       }).catch(function () {
-        showToast('Opening the PDF…');
+        clearTimeout(killer);
+        showToast('Download started — please check your Downloads folder.');
         window.location.assign(url);
-        setTimeout(hideToast, 2000);
       });
     });
+    window.addEventListener('pageshow', hideToast);
   })();
   </script>
 </body>
