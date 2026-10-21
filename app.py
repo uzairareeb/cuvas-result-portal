@@ -1101,13 +1101,11 @@ def admin_logout():
 def admin_dashboard():
     db = get_db()
     act = active_session()
-    if act:
-        rows = [dict(r) for r in db.fetchall(
-            "SELECT * FROM candidates WHERE session_id=? AND deleted_at IS NULL",
-            (act["id"],))]
-    else:
-        rows = [dict(r) for r in db.fetchall(
-            "SELECT * FROM candidates WHERE deleted_at IS NULL")]
+    # Dashboard shows the TOTAL picture: every live record in every
+    # session combined, with a session-wise breakdown below — not just
+    # the active session.
+    rows = [dict(r) for r in db.fetchall(
+        "SELECT * FROM candidates WHERE deleted_at IS NULL")]
     total = len(rows)
     phd = mphil = qcount = 0
     for r in rows:
@@ -1157,6 +1155,27 @@ def admin_dashboard():
     pass_rate = round(qcount / total * 100, 1) if total else 0
     # Donut geometry: r=52, circumference ~= 326.7
     donut_dash = round(pass_rate / 100 * 326.7, 1)
+    # ---- totals across sessions + marks snapshot ----
+    sess_map = {s["id"]: s["name"] for s in get_sessions()}
+    for r in rows:
+        r["session_label"] = sess_map.get(r.get("session_id"), "")
+    sess_stats = []
+    max_sess = 1
+    for s in get_sessions():
+        sr = [r for r in rows if r.get("session_id") == s["id"]]
+        sq = sum(1 for r in sr if r["status"] == "Qualified")
+        sess_stats.append({"name": s["name"],
+                           "is_active": bool(s.get("is_active")),
+                           "total": len(sr), "qualified": sq,
+                           "rate": round(sq / len(sr) * 100, 1) if sr else 0})
+        max_sess = max(max_sess, len(sr))
+    for s in sess_stats:
+        s["width"] = round(s["total"] / max_sess * 100, 1)
+    unique_students = len({r.get("cnic") for r in rows if r.get("cnic")})
+    pcts = [r["pct"] for r in rows if r.get("pct") is not None]
+    marks_hi = max(pcts) if pcts else None
+    marks_lo = min(pcts) if pcts else None
+    marks_avg = round(sum(pcts) / len(pcts), 1) if pcts else None
     try:
         lk = db.fetchone("SELECT COUNT(*) AS c FROM lookups")
         lk_total = lk["c"] if isinstance(lk, dict) else lk[0]
@@ -1175,7 +1194,12 @@ def admin_dashboard():
                            top_scorers=top_scorers, pass_rate=pass_rate,
                            donut_dash=donut_dash, lk_total=lk_total,
                            lk_fails=lk_fails,
-                           session_name=act["name"] if act else "")
+                           session_name=act["name"] if act else "",
+                           sess_stats=sess_stats,
+                           sessions_count=len(sess_stats),
+                           unique_students=unique_students,
+                           marks_hi=marks_hi, marks_lo=marks_lo,
+                           marks_avg=marks_avg)
 
 
 @app.route("/admin/upload")
