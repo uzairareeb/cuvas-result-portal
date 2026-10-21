@@ -4,7 +4,7 @@
 {% block content %}
 <div class="card">
   <h2 class="card-h">Test Sessions</h2>
-  <p class="hint" style="margin:0 0 16px">Every result belongs to a session (one entry test). The <strong>active</strong> session is what students see by default; older sessions stay archived and students can still select them on the portal. A new session is created only when you upload results with a new session name on the Upload Results page.</p>
+  <p class="hint" style="margin:0 0 16px">Every result belongs to a session (one entry test). The <strong>active</strong> session is what students see by default; older sessions stay archived and students can still select them on the portal. A new session is created only when you upload results with a new session name on the Upload Results page. <strong>Any</strong> session can be deleted — even the active or the only one; its records move to Trash (recoverable for 30 days).</p>
   <div class="tbl-wrap" style="margin-bottom:20px">
     <table class="tbl">
       <thead>
@@ -24,11 +24,9 @@
               <button class="btn small" type="submit" data-confirm="Make '{{ s.name }}' the active session? Students will see this session selected by default on the portal." data-confirm-title="Change active session?" data-confirm-yes="Yes, Make Active">Make Active</button>
             </form>
             {% endif %}
-            {% if s.count == 0 and not s.is_active %}
             <form method="post" action="{{ url_for('admin_sessions_delete', sid=s.id) }}" style="display:inline">
-              <button class="btn small danger" type="submit" data-confirm="Delete the empty session '{{ s.name }}'? This cannot be undone." data-confirm-danger="1" data-confirm-title="Delete this session?" data-confirm-yes="Yes, Delete">Delete</button>
+              <button class="btn small danger" type="submit" data-confirm="{% if s.count %}Delete session '{{ s.name }}'? Its {{ s.count }} record(s) will move to Trash (recoverable for 30 days).{% else %}Delete the empty session '{{ s.name }}'?{% endif %}" data-confirm-danger="1" data-confirm-title="Delete this session?" data-confirm-yes="Yes, Delete">Delete</button>
             </form>
-            {% endif %}
           </td>
         </tr>
         {% else %}

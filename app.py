@@ -38,7 +38,8 @@ ALLOWED_EXT = {"csv", "xlsx", "xls"}
 COLUMN_MAP = {
     "name": ["name", "candidate name", "candidate", "student name", "applicant name"],
     "father_name": ["father name", "father's name", "father_name", "father", "fathers name", "s/o d/o"],
-    "cnic": ["cnic", "cnic no", "cnic number", "nic", "national id"],
+    "cnic": ["cnic", "cnic no", "cnic number", "nic", "national id",
+             "student cnic", "candidate cnic", "cnic of candidate"],
     "program": ["program", "programme", "degree program", "program level", "level"],
     "roll_no": ["roll no", "roll_no", "roll number", "rollnumber", "seat no"],
     "discipline": ["discipline", "applied degree", "degree",
@@ -1757,22 +1758,41 @@ def admin_sessions_activate(sid):
 @app.route("/admin/sessions/<int:sid>/delete", methods=["POST"])
 @admin_required
 def admin_sessions_delete(sid):
+    """Any session can be deleted — even the active or the only one. Its live
+    records move to Trash (recoverable for 30 days); its already-trashed
+    records are purged with it. If it was active, the newest remaining
+    session becomes active."""
     db = get_db()
+    srow = db.fetchone("SELECT * FROM sessions WHERE id=?", (sid,))
+    if not srow:
+        flash("Session not found.", "err")
+        return redirect(url_for("admin_sessions"))
+    sname = dict(srow)["name"]
+    was_active = bool(dict(srow)["is_active"])
     row = db.fetchone("SELECT COUNT(*) AS c FROM candidates WHERE session_id=?"
                       " AND deleted_at IS NULL", (sid,))
     n = row["c"] if isinstance(row, dict) else row[0]
-    if n:
-        flash("Only empty sessions can be deleted — this one still has records.", "err")
-        return redirect(url_for("admin_sessions"))
-    # Only trashed records remain: they go permanently with the session.
+    # Purge the session's ALREADY-trashed records first — after the UPDATE
+    # below, the just-trashed live records would match this DELETE too.
     db.execute("DELETE FROM candidates WHERE session_id=? AND deleted_at IS NOT NULL",
                (sid,))
-    srow = db.fetchone("SELECT * FROM sessions WHERE id=?", (sid,))
+    if n:
+        make_backup(f"Before deleting session '{sname}' ({n} record(s) to Trash)")
+        db.execute("UPDATE candidates SET deleted_at=? WHERE session_id=?"
+                   " AND deleted_at IS NULL", (_now_str(), sid))
     db.execute("DELETE FROM sessions WHERE id=?", (sid,))
+    if was_active:
+        nxt = db.fetchone("SELECT id FROM sessions ORDER BY id DESC LIMIT 1")
+        if nxt:
+            nid = nxt["id"] if isinstance(nxt, dict) else nxt[0]
+            db.execute("UPDATE sessions SET is_active=1 WHERE id=?", (nid,))
     db.commit()
-    if srow:
-        log_audit("Session deleted", dict(srow)["name"])
-    flash("Session deleted.", "del")
+    log_audit("Session deleted", f"'{sname}' — {n} record(s) moved to Trash")
+    if n:
+        flash(f"Session '{sname}' deleted. Its {n} record(s) were moved to "
+              f"Trash — restore within 30 days from Admin → Trash.", "del")
+    else:
+        flash(f"Session '{sname}' deleted.", "del")
     return redirect(url_for("admin_sessions"))
 
 
@@ -2260,10 +2280,29 @@ def admin_students_bulk():
 
 def header_key(header):
     h = re.sub(r"\s+", " ", str(header or "").strip().lower())
+    h = re.sub(r"[.#:_-]+$", "", h).strip()  # "CNIC No." -> "cnic no"
     for field, aliases in COLUMN_MAP.items():
         if h in aliases:
             return field
     return None
+
+
+def _cell_str(val):
+    """One spreadsheet/CSV cell -> clean text. Integral floats (e.g. a CNIC
+    typed into Excel as a NUMBER: 3520277777777.0) become plain digits —
+    never '3520277777777.0', which used to break the 13-digit CNIC check
+    and made every such row 'invalid'."""
+    if val is None:
+        return ""
+    if isinstance(val, datetime):
+        return val.strftime("%d-%b-%Y")
+    if isinstance(val, date):
+        return val.strftime("%d-%b-%Y")
+    if isinstance(val, float):
+        if val.is_integer() and abs(val) < 1e16:
+            return str(int(val))
+        return str(val)
+    return str(val).strip()
 
 
 def read_upload(file_storage):
@@ -2272,9 +2311,38 @@ def read_upload(file_storage):
     filename = file_storage.filename or ""
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     if ext == "csv":
-        text = io.TextIOWrapper(file_storage.stream, encoding="utf-8-sig")
-        return list(csv.DictReader(text))
+        try:
+            text = io.TextIOWrapper(file_storage.stream, encoding="utf-8-sig")
+            return list(csv.DictReader(text))
+        except UnicodeDecodeError:
+            file_storage.stream.seek(0)
+            text = io.TextIOWrapper(file_storage.stream, encoding="latin-1")
+            return list(csv.DictReader(text))
     data = file_storage.read()
+    if ext == "xls":
+        # Legacy Excel format — openpyxl cannot read it, xlrd can.
+        import xlrd
+        book = xlrd.open_workbook(file_contents=data)
+        sh = book.sheet_by_index(0)
+        grid = []
+        for i in range(sh.nrows):
+            vals = []
+            for ci in range(sh.ncols):
+                cell = sh.cell(i, ci)
+                if cell.ctype == xlrd.XL_CELL_DATE:
+                    try:
+                        vals.append(xlrd.xldate_as_datetime(cell.value,
+                                                            book.datemode))
+                    except Exception:
+                        vals.append(cell.value)
+                else:
+                    vals.append(cell.value)
+            grid.append(vals)
+        if not grid:
+            return []
+        headers = [str(h) if h is not None else "" for h in grid[0]]
+        return [dict(zip(headers, row)) for row in grid[1:]
+                if any(v != "" for v in row)]
     from openpyxl import load_workbook
     wb = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
     ws = wb.active
@@ -2348,15 +2416,12 @@ def admin_upload():
         for hdr, val in rr.items():
             field = mapping.get(hdr)
             if field:
-                # Excel often gives real datetime objects (with 00:00:00 time);
-                # store them as clean dates so no timestamp leaks onto the card.
-                if isinstance(val, datetime):
-                    val = val.strftime("%d-%b-%Y")
-                elif isinstance(val, date):
-                    val = val.strftime("%d-%b-%Y")
+                # _cell_str turns Excel datetimes into clean dates and
+                # numeric cells (CNICs typed as numbers!) into plain digits.
+                text = _cell_str(val)
                 if field == "program":
-                    val = norm_program(val)
-                rec[field] = str(val).strip() if val is not None else ""
+                    text = norm_program(text)
+                rec[field] = text
         cnic = norm_cnic(rec.get("cnic", ""))
         rec["cnic"] = cnic
         if not rec.get("name"):
