@@ -2287,6 +2287,16 @@ def header_key(header):
     return None
 
 
+def _float_or_none(v):
+    """Marks value -> float, or None when it is blank / not a number
+    (result sheets often carry 'Absent', '-', 'AB' in the marks column;
+    Postgres REAL columns reject those outright and abort the upload)."""
+    try:
+        return float(str(v).replace(",", "").strip())
+    except (TypeError, ValueError):
+        return None
+
+
 def _cell_str(val):
     """One spreadsheet/CSV cell -> clean text. Integral floats (e.g. a CNIC
     typed into Excel as a NUMBER: 3520277777777.0) become plain digits —
@@ -2433,8 +2443,22 @@ def admin_upload():
         else:
             status, reason = "new", ""
             existing.add(cnic)
+        # Marks must be numbers: text like 'Absent'/'-' is saved BLANK (with
+        # a warning), never passed to the database — on Postgres a text value
+        # in a REAL column aborts the whole upload with a 500 error.
+        marks_warns = []
+        for _f, _lab in (("obtained", "Obtained"), ("total", "Total")):
+            _raw = (rec.get(_f) or "").strip()
+            if _raw:
+                _fv = _float_or_none(_raw)
+                if _fv is None:
+                    marks_warns.append(f"{_lab} marks value '{_raw}' is not a "
+                                       f"number — will be saved blank")
+                    rec[_f] = ""
+                else:
+                    rec[_f] = str(int(_fv)) if _fv.is_integer() else str(_fv)
         # ---- non-blocking warnings (row still saves; admin just sees them) ----
-        warns = []
+        warns = list(marks_warns)
         if status != "invalid":
             try:
                 obt_f = float(rec.get("obtained") or "nan")
@@ -2535,15 +2559,28 @@ def admin_upload_confirm():
         values = (rec.get("name"), rec.get("father_name"), rec.get("cnic"),
                   rec.get("program") or "PhD", rec.get("roll_no"),
                   rec.get("discipline"), rec.get("test_date"),
-                  rec.get("obtained") or None, rec.get("total") or None,
+                  _float_or_none(rec.get("obtained")),
+                  _float_or_none(rec.get("total")),
                   rec.get("merit_no"), now, sess["id"])
         try:
+            # Postgres aborts the WHOLE transaction on one bad row, so each
+            # row gets its own savepoint: a single failure can only ever
+            # skip that one row, never crash the entire upload.
+            if USE_PG:
+                db.execute("SAVEPOINT up_row")
             db.execute(upsert, values)
+            if USE_PG:
+                db.execute("RELEASE SAVEPOINT up_row")
             if d["status"] == "update":
                 updated += 1
             else:
                 imported += 1
         except Exception:
+            if USE_PG:
+                try:
+                    db.execute("ROLLBACK TO SAVEPOINT up_row")
+                except Exception:
+                    pass
             skipped += 1
     db.execute("INSERT INTO uploads(ts, filename, imported, updated, skipped)"
                " VALUES (?, ?, ?, ?, ?)", (_now_str(), filename, imported, updated, skipped))
