@@ -729,6 +729,33 @@ def valid_till_date(r):
     return add_one_year(base) if base else None
 
 
+def clean_discipline(program, discipline):
+    """Degree name without a duplicated program prefix.
+
+    Some uploaded files carry the program inside the degree itself
+    ("PhD Zoology"); displaying it next to the program then doubles it
+    ("PhD — PhD Zoology"). Strip the leading program so displays can
+    compose "PhD — Zoology". Returns the original text if stripping
+    would leave nothing.
+    """
+    d = (discipline or "").strip()
+    p = (program or "").strip()
+    if d and p and d.lower().startswith(p.lower()):
+        rest = d[len(p):].strip().lstrip("—-").strip()
+        if rest:
+            return rest
+    return d
+
+
+def _display_degree(r):
+    """'PhD — Zoology' style degree for cards: program + cleaned degree."""
+    prog = r.get("program") or "PhD"
+    disc = clean_discipline(prog, r.get("discipline"))
+    if disc and disc.lower() != prog.lower():
+        return f"{prog} — {disc}"
+    return prog
+
+
 def build_card(r):
     """Assemble the result-card fields from a candidate record."""
     held = parse_date(r.get("test_date"))
@@ -748,9 +775,10 @@ def build_card(r):
         "cnic": fmt_cnic(r.get("cnic", "")),
         "cnic_raw": norm_cnic(r.get("cnic", "")),
         # Program is part of the displayed degree, so two applications of
-        # one student (PhD Zoology vs MPhil Zoology) never look alike.
-        "degree": ((r.get("program") or "PhD") +
-                   (f" — {r.get('discipline')}" if r.get("discipline") else "")),
+        # one student (PhD Zoology vs MPhil Zoology) never look alike —
+        # with the degree cleaned first so it never doubles ("PhD — Zoology",
+        # never "PhD — PhD Zoology").
+        "degree": _display_degree(r),
         "held_on": fmt_date(held) if held else (r.get("test_date") or ""),
         "total": fmt_num(r.get("total")),
         "obtained": obtained_s,
@@ -849,7 +877,8 @@ def result(cnic):
             apps.append({
                 "id": r["id"],
                 "program": r.get("program") or "PhD",
-                "degree": r.get("discipline") or "—",
+                "degree": clean_discipline(r.get("program") or "PhD",
+                                           r.get("discipline")) or "—",
                 "held_on": fmt_date(held) if held else (r.get("test_date") or ""),
                 "url": url_for("result", cnic=cnic, s=sid, app=r["id"]),
             })
@@ -1359,11 +1388,7 @@ def _filtered_students(q, program, degree, status, session_id=None):
         # compact display values for the students table: degree without the
         # duplicated program prefix ("PhD Zoology" -> "Zoology") and the held
         # date alone (the stored value may carry extras like "| Batch-1").
-        deg = (r.get("discipline") or "").strip()
-        prog = r["program"]
-        if deg.lower().startswith(prog.lower() + " "):
-            deg = deg[len(prog) + 1:].strip()
-        r["degree_disp"] = deg or (r.get("discipline") or "")
+        r["degree_disp"] = clean_discipline(r["program"], r.get("discipline"))
         held = parse_date(r.get("test_date"))
         r["held_disp"] = fmt_date(held) if held else (r.get("test_date") or "")
     if status in ("Qualified", "Not Qualified"):

@@ -590,11 +590,11 @@ tr.total-row td { background: #f4f6fd; border-top: 2px solid #d5d9ec; }
 @media (max-width:520px){ .app-go{ font-size:0; } .app-go svg{ width:20px; height:20px; } }
 
 /* ---- log period tabs + collapsible day groups (admin) ---- */
-.ptabs{ display:flex; gap:8px; flex-wrap:wrap; }
+.ptabs{ display:flex; gap:8px; flex-wrap:wrap; margin:2px 0 18px; }
 .ptabs a{ padding:7px 16px; border-radius:999px; border:1.5px solid #d5d9ec; background:#f4f6fd; color:#3c4066; font-size:13.5px; font-weight:600; text-decoration:none; }
 .ptabs a:hover{ border-color:#2d3290; color:#2d3290; }
 .ptabs a.on{ background:linear-gradient(135deg,#2d3290 0%,#5a3ec8 100%); border-color:#2d3290; color:#ffffff; font-weight:700; box-shadow:0 5px 14px rgba(45,50,144,.38); }
-.day-group{ margin:0 0 12px; }
+.day-group{ margin:0 0 14px; clear:both; }
 .day-group > summary{ display:flex; align-items:center; justify-content:space-between; gap:10px; cursor:pointer; list-style:none; background:#eef0fb; border:1px solid var(--line); border-radius:10px; padding:10px 14px; font-weight:700; font-size:14px; color:var(--indigo-dark, #23265f); }
 .day-group > summary::-webkit-details-marker{ display:none; }
 .day-group > summary:hover{ border-color:var(--indigo); }
