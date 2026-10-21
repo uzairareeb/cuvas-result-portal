@@ -1356,6 +1356,16 @@ def _filtered_students(q, program, degree, status, session_id=None):
         r["program"] = r.get("program") or "PhD"
         _, r["status"] = calc_result(r.get("obtained"), r.get("total"),
                                      program_passing_pct(r["program"]))
+        # compact display values for the students table: degree without the
+        # duplicated program prefix ("PhD Zoology" -> "Zoology") and the held
+        # date alone (the stored value may carry extras like "| Batch-1").
+        deg = (r.get("discipline") or "").strip()
+        prog = r["program"]
+        if deg.lower().startswith(prog.lower() + " "):
+            deg = deg[len(prog) + 1:].strip()
+        r["degree_disp"] = deg or (r.get("discipline") or "")
+        held = parse_date(r.get("test_date"))
+        r["held_disp"] = fmt_date(held) if held else (r.get("test_date") or "")
     if status in ("Qualified", "Not Qualified"):
         rows = [r for r in rows if r["status"] == status]
     return rows

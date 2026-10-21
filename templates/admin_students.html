@@ -59,24 +59,29 @@
   </form>
   <div class="table-wrap table-fit">
     <table>
+      <colgroup>
+        <col style="width:3%"><col style="width:18.5%"><col style="width:12.5%">
+        <col style="width:15%"><col style="width:9%"><col style="width:12%">
+        <col style="width:10%"><col style="width:20%">
+      </colgroup>
       <thead><tr><th><input type="checkbox" id="checkAll" aria-label="Select all on this page"></th><th>Name</th><th>CNIC</th><th>Applied Degree</th><th>Marks</th><th>Status</th><th>Held On</th><th style="text-align:right">Actions</th></tr></thead>
       <tbody>
         {% for r in rows %}
         <tr>
           <td><input type="checkbox" class="row-check" name="ids" value="{{ r.id }}" form="bulkForm" aria-label="Select {{ r.name }}"></td>
           <td><strong>{{ r.name }}</strong><br><span class="hint">{{ r.father_name }}</span></td>
-          <td>{{ r.cnic }}</td>
-          <td>{{ r.discipline }}<br><span class="hint">{{ r.program }}</span></td>
-          <td>{{ r.obtained }} / {{ r.total }}</td>
-          <td>
+          <td class="nowrap">{{ r.cnic }}</td>
+          <td>{{ r.degree_disp }}<br><span class="hint">{{ r.program }}</span></td>
+          <td class="nowrap">{{ r.obtained }} / {{ r.total }}</td>
+          <td class="nowrap">
             {% if r.status == 'Qualified' %}
             <span class="pill q"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Qualified</span>
             {% else %}
             <span class="pill nq"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>Not Qualified</span>
             {% endif %}
           </td>
-          <td>{{ r.test_date }}</td>
-          <td style="text-align:right;white-space:nowrap">
+          <td class="nowrap">{{ r.held_disp }}</td>
+          <td class="actions-cell" style="text-align:right">
             <a class="btn ghost sm" href="{{ url_for('result', cnic=r.cnic, s=r.session_id, app=r.id) }}" target="_blank" rel="noopener">View Card</a>
             <button type="button" class="btn ghost sm edit-btn"
               data-id="{{ r.id }}" data-name="{{ r.name }}" data-father="{{ r.father_name or '' }}"

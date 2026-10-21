@@ -469,8 +469,13 @@ tr.total-row td { background: #f4f6fd; border-top: 2px solid #d5d9ec; }
 .dl-toast.show { opacity: 1; transform: translate(-50%, 0); }
 
 /* ---------- admin students: fitted table + edit popup ---------- */
-.table-fit table { min-width: 0; }
-.table-fit th, .table-fit td { padding: 10px 12px; }
+.table-fit { overflow-x: hidden; }
+.table-fit table { min-width: 0; table-layout: fixed; }
+.table-fit th, .table-fit td { padding: 9px 10px; white-space: normal; }
+.table-fit .nowrap { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.table-fit td.actions-cell { white-space: nowrap; }
+.table-fit .pill { padding: 4px 10px; font-size: 12px; }
+.table-fit .btn.sm { padding: 5px 9px; font-size: 12.5px; border-radius: 7px; }
 .amodal.wide { max-width: 660px; width: 100%; text-align: left; padding: 24px 26px 20px;
   max-height: calc(100vh - 36px); overflow-y: auto; }
 .amodal.wide .section-head { margin-bottom: 14px; }
