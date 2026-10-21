@@ -314,6 +314,33 @@ def init_db():
         scols = [c[1] for c in db.fetchall("PRAGMA table_info(upload_staging)")]
         if "warning" not in scols:
             db.execute("ALTER TABLE upload_staging ADD COLUMN warning TEXT")
+    # ---- multiple applications per student: degree_key ----
+    # One student may apply for several degrees in the SAME session, so
+    # uniqueness is per (cnic, session, degree) — not per (cnic, session).
+    if USE_PG:
+        db.execute("ALTER TABLE candidates ADD COLUMN IF NOT EXISTS degree_key TEXT")
+        db.execute("UPDATE candidates SET degree_key ="
+                   " lower(trim(coalesce(program, 'PhD'))) || '|' ||"
+                   " lower(trim(regexp_replace(coalesce(discipline, ''), '\\s+', ' ', 'g')))"
+                   " WHERE degree_key IS NULL")
+        db.execute("DROP INDEX IF EXISTS candidates_live_uidx")
+        db.execute("CREATE UNIQUE INDEX IF NOT EXISTS candidates_live_uidx"
+                   " ON candidates(cnic, session_id, degree_key)"
+                   " WHERE deleted_at IS NULL")
+    else:
+        _cols = [c[1] for c in db.fetchall("PRAGMA table_info(candidates)")]
+        if "degree_key" not in _cols:
+            db.execute("ALTER TABLE candidates ADD COLUMN degree_key TEXT")
+        for _r in db.fetchall("SELECT id, program, discipline FROM candidates"
+                              " WHERE degree_key IS NULL"):
+            _rd = dict(_r)
+            db.execute("UPDATE candidates SET degree_key=? WHERE id=?",
+                       (norm_degree_key(_rd.get("program"),
+                                        _rd.get("discipline")), _rd["id"]))
+        db.execute("DROP INDEX IF EXISTS candidates_live_uidx")
+        db.execute("CREATE UNIQUE INDEX IF NOT EXISTS candidates_live_uidx"
+                   " ON candidates(cnic, session_id, degree_key)"
+                   " WHERE deleted_at IS NULL")
     # One default session for all pre-session records; exactly one active.
     srow = db.fetchone("SELECT id FROM sessions ORDER BY id LIMIT 1")
     if not srow:
@@ -433,6 +460,15 @@ def obtained_pct(obtained, total):
     return round(o / t * 100, 1)
 
 
+def norm_degree_key(program, discipline):
+    """Identity of ONE application inside a session: program + discipline,
+    normalized. A student may hold several applications (different degrees)
+    in the same session; uniqueness is per (cnic, session, degree_key)."""
+    p = (program or "PhD").strip().lower()
+    d = re.sub(r"\s+", " ", (discipline or "").strip().lower())
+    return f"{p}|{d}"
+
+
 # ---------------- test sessions ----------------
 def get_sessions():
     try:
@@ -479,13 +515,18 @@ def get_or_create_session(name):
 
 
 # ---------------- QR verification ----------------
-def verify_url(cnic, sid=None):
+def verify_url(cnic, sid=None, app_id=None):
     base = request.host_url
     if base.startswith("http://") and "localhost" not in base and "127.0.0.1" not in base:
         base = "https://" + base[len("http://"):]
     url = f"{base}verify/{cnic}"
+    params = []
     if sid:
-        url += f"?s={sid}"
+        params.append(f"s={sid}")
+    if app_id:
+        params.append(f"app={app_id}")
+    if params:
+        url += "?" + "&".join(params)
     return url
 
 
@@ -660,7 +701,10 @@ def build_card(r):
         "father_name": r.get("father_name", ""),
         "cnic": fmt_cnic(r.get("cnic", "")),
         "cnic_raw": norm_cnic(r.get("cnic", "")),
-        "degree": r.get("discipline", ""),
+        # Program is part of the displayed degree, so two applications of
+        # one student (PhD Zoology vs MPhil Zoology) never look alike.
+        "degree": ((r.get("program") or "PhD") +
+                   (f" — {r.get('discipline')}" if r.get("discipline") else "")),
         "held_on": fmt_date(held) if held else (r.get("test_date") or ""),
         "total": fmt_num(r.get("total")),
         "obtained": obtained_s,
@@ -669,7 +713,9 @@ def build_card(r):
         "passing_pct": fmt_num(pct) + "%",
         "session_id": r.get("session_id"),
         "session_name": session_name(r.get("session_id")) if r.get("session_id") else "",
-        "verify_url": verify_url(norm_cnic(r.get("cnic", "")), r.get("session_id")),
+        "id": r.get("id"),
+        "verify_url": verify_url(norm_cnic(r.get("cnic", "")), r.get("session_id"),
+                                 r.get("id")),
         "status": status,
         "valid_till": fmt_date(valid),
         "footer_year": str(valid.year) if valid else str(datetime.now().year),
@@ -711,6 +757,23 @@ def index():
                            sessions=sess, active_id=act["id"] if act else None)
 
 
+def _application_rows(cnic, sid):
+    """All LIVE applications of one CNIC inside one session (a student may
+    have applied for several degrees). Strictly session-scoped."""
+    return [dict(r) for r in get_db().fetchall(
+        "SELECT * FROM candidates WHERE cnic=? AND session_id=?"
+        " AND deleted_at IS NULL ORDER BY program, discipline", (cnic, sid))]
+
+
+def _pick_application(rows, app_id):
+    if app_id:
+        for r in rows:
+            if r["id"] == app_id:
+                return r
+        return None
+    return rows[0] if len(rows) == 1 else None
+
+
 @app.route("/result/<cnic>")
 def result(cnic):
     cnic = norm_cnic(cnic)
@@ -718,27 +781,42 @@ def result(cnic):
     if not sid:
         act = active_session()
         sid = act["id"] if act else None
-    db = get_db()
-    # Strict: a result is only ever shown from the selected session. A record
-    # in another session must NOT appear here (the student picks that session).
-    row = db.fetchone("SELECT * FROM candidates WHERE cnic=? AND session_id=?"
-                      " AND deleted_at IS NULL",
-                      (cnic, sid))
+    rows = _application_rows(cnic, sid)
     try:  # lookup analytics for the admin Lookup Log (never breaks the page)
         db = get_db()
         db.execute("INSERT INTO lookups(ts, cnic, found) VALUES (?, ?, ?)",
-                   (_now_str(), cnic, 1 if row else 0))
+                   (_now_str(), cnic, 1 if rows else 0))
         db.commit()
     except Exception:
         pass
-    if not row:
+    if not rows:
         return render_template("notfound.html", uni=UNI_NAME, title=PORTAL_TITLE,
                                cnic_disp=fmt_cnic(cnic),
                                sess_name=session_name(sid) if sid else ""), 404
-    r = dict(row)
-    card = build_card(r)
+    app_id = request.args.get("app", type=int)
+    chosen = _pick_application(rows, app_id)
+    if chosen is None:
+        # Several applications: let the student pick which degree's card.
+        apps = []
+        for r in rows:
+            held = parse_date(r.get("test_date") or "")
+            apps.append({
+                "id": r["id"],
+                "program": r.get("program") or "PhD",
+                "degree": r.get("discipline") or "—",
+                "held_on": fmt_date(held) if held else (r.get("test_date") or ""),
+                "url": url_for("result", cnic=cnic, s=sid, app=r["id"]),
+            })
+        return render_template("result_choices.html", uni=UNI_NAME,
+                               short=UNI_SHORT, title=PORTAL_TITLE,
+                               cnic_disp=fmt_cnic(cnic),
+                               sess_name=session_name(sid) if sid else "",
+                               apps=apps)
+    card = build_card(chosen)
     return render_template("result.html", uni=UNI_NAME, short=UNI_SHORT,
-                           title=PORTAL_TITLE, card=card)
+                           title=PORTAL_TITLE, card=card,
+                           multi=len(rows) > 1,
+                           choices_url=url_for("result", cnic=cnic, s=sid))
 
 
 @app.route("/result/<cnic>/pdf")
@@ -748,14 +826,13 @@ def result_pdf(cnic):
     if not sid:
         act = active_session()
         sid = act["id"] if act else None
-    db = get_db()
-    row = db.fetchone("SELECT * FROM candidates WHERE cnic=? AND session_id=?"
-                      " AND deleted_at IS NULL",
-                      (cnic, sid))
-    if not row:
+    rows = _application_rows(cnic, sid)
+    if not rows:
         return "Result not found.", 404
-    r = dict(row)
-    card = build_card(r)
+    chosen = _pick_application(rows, request.args.get("app", type=int))
+    if chosen is None:
+        return redirect(url_for("result", cnic=cnic, s=sid))
+    card = build_card(chosen)
     buf = build_pdf(card)
     filename = f"CUVAS_AdmissionTest_Result_{card['cnic_raw']}.pdf"
     return send_file(buf, mimetype="application/pdf",
@@ -767,14 +844,18 @@ def qr_code(cnic):
     """QR code image encoding this record's public verification URL."""
     cnic = norm_cnic(cnic)
     sid = request.args.get("s", type=int)
+    app_id = request.args.get("app", type=int)
+    if app_id:
+        row = get_db().fetchone(
+            "SELECT session_id FROM candidates WHERE id=? AND cnic=?"
+            " AND deleted_at IS NULL", (app_id, cnic))
+        if row:
+            sid = row["session_id"] if isinstance(row, dict) else row[0]
     if not sid:
         act = active_session()
         sid = act["id"] if act else None
-    row = get_db().fetchone("SELECT session_id FROM candidates WHERE cnic=?"
-                            " AND session_id=? AND deleted_at IS NULL", (cnic, sid))
-    if row:
-        sid = row["session_id"] if isinstance(row, dict) else row[0]
-    resp = send_file(make_qr_png(verify_url(cnic, sid)), mimetype="image/png")
+    resp = send_file(make_qr_png(verify_url(cnic, sid, app_id)),
+                     mimetype="image/png")
     resp.headers["Cache-Control"] = "public, max-age=86400"
     return resp
 
@@ -782,25 +863,30 @@ def qr_code(cnic):
 @app.route("/verify/<cnic>")
 def verify(cnic):
     """Public verification page a QR scan lands on: confirms whether this
-    CNIC has an official record and shows the same summary as the card."""
+    CNIC has an official record and shows the same summary as the card.
+    With several applications, every application is listed as verified."""
     cnic = norm_cnic(cnic)
     sid = request.args.get("s", type=int)
+    app_id = request.args.get("app", type=int)
     db = get_db()
-    row = None
-    if sid:
-        # The QR names its session: verify strictly against that session.
-        row = db.fetchone("SELECT * FROM candidates WHERE cnic=? AND session_id=?"
-                          " AND deleted_at IS NULL",
-                          (cnic, sid))
+    rows = []
+    if app_id:
+        row = db.fetchone("SELECT * FROM candidates WHERE id=? AND cnic=?"
+                          " AND deleted_at IS NULL", (app_id, cnic))
+        rows = [dict(row)] if row else []
+    elif sid:
+        rows = _application_rows(cnic, sid)
     else:
-        row = db.fetchone("SELECT * FROM candidates WHERE cnic=?"
-                          " AND deleted_at IS NULL"
-                          " ORDER BY session_id DESC", (cnic,))
-    card = None
-    if row:
-        card = build_card(dict(row))
+        latest = db.fetchone("SELECT session_id FROM candidates WHERE cnic=?"
+                             " AND deleted_at IS NULL"
+                             " ORDER BY session_id DESC", (cnic,))
+        if latest:
+            lsid = latest["session_id"] if isinstance(latest, dict) else latest[0]
+            rows = _application_rows(cnic, lsid)
+    cards = [build_card(r) for r in rows]
     return render_template("verify.html", uni=UNI_NAME, title=PORTAL_TITLE,
-                           card=card, cnic_disp=fmt_cnic(cnic)), (200 if card else 404)
+                           cards=cards, cnic_disp=fmt_cnic(cnic)), \
+        (200 if cards else 404)
 
 
 # ---------------- PDF generation ----------------
@@ -1415,15 +1501,20 @@ def admin_edit_student(cid):
         if not name or len(cnic) != 13:
             flash("Name and a valid 13-digit CNIC are required.", "err")
             return redirect(url_for("admin_edit_student", cid=cid))
-        dup = db.fetchone("SELECT id FROM candidates WHERE cnic=? AND id<>?"
-                          " AND deleted_at IS NULL", (cnic, cid))
+        dup = db.fetchone("SELECT id FROM candidates WHERE cnic=? AND session_id=?"
+                          " AND degree_key=? AND id<>? AND deleted_at IS NULL",
+                          (cnic, row["session_id"],
+                           norm_degree_key(program, discipline), cid))
         if dup:
-            flash("Another student already uses this CNIC.", "err")
+            flash("Another record with this CNIC already exists for the same "
+                  "degree in this session.", "err")
             return redirect(url_for("admin_edit_student", cid=cid))
         db.execute("UPDATE candidates SET name=?, father_name=?, cnic=?, program=?,"
-                   " discipline=?, test_date=?, obtained=?, total=? WHERE id=?",
+                   " discipline=?, test_date=?, obtained=?, total=?, degree_key=?"
+                   " WHERE id=?",
                    (name, father, cnic, program, discipline, test_date,
-                    obtained or None, total or None, cid))
+                    obtained or None, total or None,
+                    norm_degree_key(program, discipline), cid))
         db.commit()
         log_audit("Record edited", f"{name} ({fmt_cnic(cnic)}) — {obtained}/{total}")
         flash("Student record updated.")
@@ -1907,12 +1998,15 @@ def admin_trash_restore(cid):
     r = dict(row)
     label = f"{r.get('name')} ({fmt_cnic(r.get('cnic') or '')})"
     dup = db.fetchone("SELECT id FROM candidates WHERE cnic=? AND session_id=?"
-                      " AND deleted_at IS NULL AND id<>?",
-                      (r.get("cnic"), r.get("session_id"), cid))
+                      " AND degree_key=? AND deleted_at IS NULL AND id<>?",
+                      (r.get("cnic"), r.get("session_id"),
+                       r.get("degree_key") or norm_degree_key(r.get("program"),
+                                                              r.get("discipline")),
+                       cid))
     if dup:
         flash("Cannot restore: a newer live record with this CNIC already exists "
-              "in that session. Delete that record first, or delete this "
-              "trashed copy forever.", "err")
+              "for the same degree in that session. Delete that record first, "
+              "or delete this trashed copy forever.", "err")
         return redirect(url_for("admin_trash"))
     db.execute("UPDATE candidates SET deleted_at=NULL WHERE id=?", (cid,))
     db.commit()
@@ -1949,9 +2043,15 @@ def admin_quicksearch():
     db = get_db()
     row = None
     if len(digits) == 13:
-        row = db.fetchone("SELECT id FROM candidates WHERE cnic=?"
+        ids = db.fetchall("SELECT id FROM candidates WHERE cnic=?"
                           " AND deleted_at IS NULL"
                           " ORDER BY session_id DESC", (digits,))
+        if len(ids) == 1:
+            row = ids[0]
+        elif len(ids) > 1:
+            # Several applications under one CNIC: list them all so the
+            # admin can see (and pick) each degree's record.
+            return redirect(url_for("admin_students", q=digits, session="all"))
     if not row:
         rows = db.fetchall("SELECT id FROM candidates WHERE name LIKE ?"
                            " AND deleted_at IS NULL",
@@ -1976,7 +2076,8 @@ def admin_activity():
 
 # ---------------- admin: backups ----------------
 BACKUP_COLS = ("name", "father_name", "cnic", "program", "roll_no", "discipline",
-               "test_date", "obtained", "total", "merit_no", "uploaded_at", "session_id")
+               "test_date", "obtained", "total", "merit_no", "uploaded_at",
+               "session_id", "degree_key")
 
 
 @app.route("/admin/backups")
@@ -2023,6 +2124,9 @@ def admin_backup_restore(bid):
     act_id = act["id"] if act else None
     placeholders = ", ".join(["?"] * len(BACKUP_COLS))
     for rec in recs:
+        if not rec.get("degree_key"):
+            rec["degree_key"] = norm_degree_key(rec.get("program"),
+                                                rec.get("discipline"))
         db.execute(f"INSERT INTO candidates ({', '.join(BACKUP_COLS)}) "
                    f"VALUES ({placeholders})",
                    tuple((rec.get(c, "") or None) if c != "session_id"
@@ -2402,15 +2506,16 @@ def admin_upload():
     act = active_session()
     if not sess_name:
         sess_name = act["name"] if act else "Entry Test"
-    # CNIC existence is judged inside the target session only — the same CNIC
-    # in an older session is a legitimately different record.
+    # Existence is judged per APPLICATION inside the target session: the
+    # same CNIC with a DIFFERENT degree is a separate application (new),
+    # the same CNIC + same degree updates that application.
     target = db.fetchone("SELECT id FROM sessions WHERE name=?", (sess_name,))
     existing = set()
     if target:
         tid = target["id"] if isinstance(target, dict) else target[0]
-        existing = {r["cnic"] for r in db.fetchall(
-            "SELECT cnic FROM candidates WHERE session_id=? AND deleted_at IS NULL",
-            (tid,))}
+        existing = {(r["cnic"], r["degree_key"]) for r in db.fetchall(
+            "SELECT cnic, degree_key FROM candidates WHERE session_id=?"
+            " AND deleted_at IS NULL", (tid,))}
     # name -> CNICs map (existing records + this file) for duplicate-name warnings
     name_map = {}
     for r in db.fetchall("SELECT name, cnic FROM candidates"
@@ -2434,15 +2539,17 @@ def admin_upload():
                 rec[field] = text
         cnic = norm_cnic(rec.get("cnic", ""))
         rec["cnic"] = cnic
+        app_key = (cnic, norm_degree_key(rec.get("program"),
+                                         rec.get("discipline")))
         if not rec.get("name"):
             status, reason = "invalid", "Missing name"
         elif len(cnic) != 13:
             status, reason = "invalid", "CNIC is not 13 digits"
-        elif cnic in existing:
-            status, reason = "update", "CNIC already exists in this session — record will be updated"
+        elif app_key in existing:
+            status, reason = "update", "This application already exists in this session — it will be updated"
         else:
             status, reason = "new", ""
-            existing.add(cnic)
+            existing.add(app_key)
         # Marks must be numbers: text like 'Absent'/'-' is saved BLANK (with
         # a warning), never passed to the database — on Postgres a text value
         # in a REAL column aborts the whole upload with a 500 error.
@@ -2516,11 +2623,47 @@ def admin_upload_preview():
         counts[d["status"] + "_count"] = counts.get(d["status"] + "_count", 0) + 1
         if d.get("warning"):
             warn_count += 1
+    # Multi-application notice: which students hold (or will hold) more than
+    # one application in the target session — this file's rows combined with
+    # what is already saved there.
+    from collections import defaultdict
+    apps_by_cnic = defaultdict(dict)   # cnic -> {degree_key: (name, label)}
+    sess_name = session.get("upload_session", "")
+    trow = db.fetchone("SELECT id FROM sessions WHERE name=?", (sess_name,))
+    if trow:
+        tid = trow["id"] if isinstance(trow, dict) else trow[0]
+        for r in db.fetchall("SELECT name, cnic, program, discipline, degree_key"
+                             " FROM candidates WHERE session_id=?"
+                             " AND deleted_at IS NULL", (tid,)):
+            rd = dict(r)
+            apps_by_cnic[rd["cnic"]][rd["degree_key"]] = (
+                rd.get("name") or "",
+                f"{rd.get('program') or 'PhD'} — {rd.get('discipline') or '—'}")
+    for d in rows:
+        if d["status"] == "invalid":
+            continue
+        rec = d["rec"]
+        cnic = rec.get("cnic") or ""
+        if len(cnic) != 13:
+            continue
+        key = norm_degree_key(rec.get("program"), rec.get("discipline"))
+        apps_by_cnic[cnic][key] = (
+            rec.get("name") or "",
+            f"{rec.get('program') or 'PhD'} — {rec.get('discipline') or '—'}")
+    multi_apps = []
+    for cnic, degmap in apps_by_cnic.items():
+        if len(degmap) > 1:
+            name = next((v[0] for v in degmap.values() if v[0]), "")
+            multi_apps.append({"name": name, "cnic": fmt_cnic(cnic),
+                               "count": len(degmap),
+                               "apps": [v[1] for v in degmap.values()]})
+    multi_apps.sort(key=lambda m: m["name"])
     return render_template("admin_preview.html", uni=UNI_NAME, title=PORTAL_TITLE,
                            active="upload", rows=rows, counts=counts,
                            warn_count=warn_count,
-                           sess_name=session.get("upload_session", ""),
-                           filename=session.get("upload_file", ""))
+                           sess_name=sess_name,
+                           filename=session.get("upload_file", ""),
+                           multi_apps=multi_apps)
 
 
 @app.route("/admin/upload/confirm", methods=["POST"])
@@ -2538,15 +2681,17 @@ def admin_upload_confirm():
     sess, sess_created = get_or_create_session(session.get("upload_session", ""))
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     cols = ("name", "father_name", "cnic", "program", "roll_no", "discipline",
-            "test_date", "obtained", "total", "merit_no", "uploaded_at", "session_id")
+            "test_date", "obtained", "total", "merit_no", "uploaded_at",
+            "session_id", "degree_key")
     placeholders = ", ".join(["?"] * len(cols))
     if USE_PG:
-        # The uniqueness index is partial (live rows only — Trash), so the
-        # conflict target needs the same predicate.
+        # The uniqueness index is partial (live rows only — Trash) and per
+        # application (cnic + session + degree), so the conflict target
+        # needs the same columns and predicate.
         upsert = (f"INSERT INTO candidates ({', '.join(cols)}) VALUES ({placeholders}) "
-                  "ON CONFLICT(cnic, session_id) WHERE deleted_at IS NULL DO UPDATE SET "
+                  "ON CONFLICT(cnic, session_id, degree_key) WHERE deleted_at IS NULL DO UPDATE SET "
                   + ", ".join(f"{c}=EXCLUDED.{c}" for c in cols
-                              if c not in ("cnic", "session_id")))
+                              if c not in ("cnic", "session_id", "degree_key")))
     else:
         upsert = f"INSERT OR REPLACE INTO candidates ({', '.join(cols)}) VALUES ({placeholders})"
     imported = updated = skipped = 0
@@ -2561,7 +2706,8 @@ def admin_upload_confirm():
                   rec.get("discipline"), rec.get("test_date"),
                   _float_or_none(rec.get("obtained")),
                   _float_or_none(rec.get("total")),
-                  rec.get("merit_no"), now, sess["id"])
+                  rec.get("merit_no"), now, sess["id"],
+                  norm_degree_key(rec.get("program"), rec.get("discipline")))
         try:
             # Postgres aborts the WHOLE transaction on one bad row, so each
             # row gets its own savepoint: a single failure can only ever
