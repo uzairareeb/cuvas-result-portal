@@ -7,7 +7,7 @@
   <h1>Multiple Applications Found</h1>
   <p class="lede">CNIC <strong>{{ cnic_disp }}</strong> has applied for <strong>{{ apps|length }} degrees</strong>{% if sess_name %} in {{ sess_name }}{% endif %}. Please select a degree to view its result card — or download all of them in one PDF.</p>
   <div class="actions" style="justify-content:center;margin-bottom:18px">
-    <a class="btn primary" href="{{ url_for('result_all_pdf', cnic=cnic_raw, s=sid) }}">
+    <a class="btn primary" data-download href="{{ url_for('result_all_pdf', cnic=cnic_raw, s=sid) }}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width:17px;height:17px;vertical-align:-3px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       Download All My Cards — One PDF ({{ apps|length }} cards)
     </a>

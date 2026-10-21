@@ -460,6 +460,14 @@ tr.total-row td { background: #f4f6fd; border-top: 2px solid #d5d9ec; }
   .cols .cl { font-size: 10px; }
 }
 
+/* ---------- download toast (student PDF buttons) ---------- */
+.dl-toast { position: fixed; left: 50%; bottom: 26px; transform: translate(-50%, 18px); z-index: 1200;
+  background: linear-gradient(135deg, #2d3290, #5a3ec8); color: #fff; font-size: 14px; font-weight: 600;
+  padding: 12px 22px; border-radius: 999px; box-shadow: 0 12px 30px rgba(45,50,144,.40);
+  opacity: 0; pointer-events: none; transition: opacity .25s ease, transform .25s ease;
+  max-width: calc(100vw - 32px); text-align: center; }
+.dl-toast.show { opacity: 1; transform: translate(-50%, 0); }
+
 /* ---------- result card: QR verification ---------- */
 .rverify { display: flex; gap: 14px; align-items: center; margin: 16px 0 6px;
   padding-top: 14px; border-top: 1px dashed var(--line); text-align: left; }

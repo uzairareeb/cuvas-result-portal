@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=16">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=17">
 </head>
 <body>
   <header class="topbar">
@@ -30,5 +30,51 @@
   <footer class="site-foot">
     <div class="wrap">&copy; 2026 Cholistan University of Veterinary &amp; Animal Sciences, Bahawalpur</div>
   </footer>
+  <div class="dl-toast" id="dlToast" role="status" aria-live="polite"></div>
+  <script>
+  (function () {
+    /* Force-download for PDF buttons: some browsers/webviews ignore the
+       server's attachment header and just display the PDF. Fetching the
+       file as a blob and clicking a temporary download link saves it
+       properly almost everywhere, and the toast confirms it happened. */
+    var toast = document.getElementById('dlToast'), timer = null;
+    function showToast(msg, sticky) {
+      toast.textContent = msg;
+      toast.classList.add('show');
+      if (timer) clearTimeout(timer);
+      if (!sticky) timer = setTimeout(function () { toast.classList.remove('show'); }, 4500);
+    }
+    function hideToast() { toast.classList.remove('show'); }
+    document.addEventListener('click', function (ev) {
+      var a = ev.target.closest ? ev.target.closest('a[data-download]') : null;
+      if (!a) return;
+      ev.preventDefault();
+      var url = a.getAttribute('href');
+      showToast('Downloading your PDF…', true);
+      fetch(url, { credentials: 'same-origin' }).then(function (resp) {
+        if (!resp.ok) throw new Error('bad response');
+        var name = 'CUVAS_Result_Card.pdf';
+        var cd = resp.headers.get('Content-Disposition') || '';
+        var m = cd.match(/filename="?([^";]+)"?/i);
+        if (m) name = m[1];
+        return resp.blob().then(function (blob) { return { blob: blob, name: name }; });
+      }).then(function (out) {
+        var objUrl = URL.createObjectURL(out.blob);
+        var tmp = document.createElement('a');
+        tmp.href = objUrl;
+        tmp.download = out.name;
+        document.body.appendChild(tmp);
+        tmp.click();
+        tmp.remove();
+        setTimeout(function () { URL.revokeObjectURL(objUrl); }, 4000);
+        showToast('Downloaded ✓ — please check your Downloads folder.');
+      }).catch(function () {
+        showToast('Opening the PDF…');
+        window.location.assign(url);
+        setTimeout(hideToast, 2000);
+      });
+    });
+  })();
+  </script>
 </body>
 </html>

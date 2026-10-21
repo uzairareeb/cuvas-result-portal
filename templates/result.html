@@ -46,8 +46,8 @@
     <div class="rfoot">&copy; {{ card.footer_year }} &nbsp; Cholistan University of Veterinary &amp; Animal Sciences, Bahawalpur</div>
   </div>
   <div class="actions">
-    <a class="btn primary" href="{{ url_for('result_pdf', cnic=card.cnic_raw, s=card.session_id, app=card.id) }}">Download PDF Result Card</a>
-    {% if multi %}<a class="btn" href="{{ url_for('result_all_pdf', cnic=card.cnic_raw, s=card.session_id) }}">Download All My Cards (One PDF)</a><a class="btn" href="{{ choices_url }}">← My Other Applications</a>{% endif %}
+    <a class="btn primary" data-download href="{{ url_for('result_pdf', cnic=card.cnic_raw, s=card.session_id, app=card.id) }}">Download PDF Result Card</a>
+    {% if multi %}<a class="btn" data-download href="{{ url_for('result_all_pdf', cnic=card.cnic_raw, s=card.session_id) }}">Download All My Cards (One PDF)</a><a class="btn" href="{{ choices_url }}">← My Other Applications</a>{% endif %}
     <a class="btn" href="{{ url_for('index') }}">Check Another CNIC</a>
   </div>
 </div>
