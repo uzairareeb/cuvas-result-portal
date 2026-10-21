@@ -1967,6 +1967,49 @@ def _purge_old_trash():
         return 0
 
 
+def _period_cutoff(period):
+    """(cutoff, label) for log-page period filters. Timestamps are stored as
+    'YYYY-MM-DD HH:MM' strings, so lexicographic comparison works."""
+    now = datetime.now()
+    if period == "week":
+        return (now - timedelta(days=7)).strftime("%Y-%m-%d %H:%M"), "Last 7 days"
+    if period == "month":
+        return (now - timedelta(days=30)).strftime("%Y-%m-%d %H:%M"), "Last 30 days"
+    if period == "all":
+        return None, "All time"
+    return now.strftime("%Y-%m-%d") + " 00:00", "Today"
+
+
+def _group_by_date(rows, ts_key="ts"):
+    """Group row dicts (newest first) into per-day groups for collapsible
+    page sections: [{date, label, items}] with Today/Yesterday labels."""
+    from collections import OrderedDict
+    groups = OrderedDict()
+    for r in rows:
+        groups.setdefault((r.get(ts_key) or "")[:10], []).append(r)
+    today = datetime.now().date()
+    out = []
+    for dstr, items in groups.items():
+        try:
+            d = datetime.strptime(dstr, "%Y-%m-%d").date()
+        except (ValueError, TypeError):
+            d = None
+        if d == today:
+            label = "Today"
+        elif d and (today - d).days == 1:
+            label = "Yesterday"
+        elif d:
+            label = d.strftime("%d %b %Y")
+        else:
+            label = dstr or "Unknown date"
+        if d and d != today and (today - d).days != 1:
+            pass
+        elif d:
+            label = f"{label} — {d.strftime('%d %b %Y')}"
+        out.append({"date": dstr, "label": label, "rows": items})
+    return out
+
+
 @app.route("/admin/trash")
 @admin_required
 def admin_trash():
@@ -1983,7 +2026,33 @@ def admin_trash():
         r["program"] = r.get("program") or "PhD"
         r["session_label"] = session_name(r.get("session_id")) or "—"
     return render_template("admin_trash.html", uni=UNI_NAME, title=PORTAL_TITLE,
-                           active="trash", rows=rows, trash_days=TRASH_DAYS)
+                           active="trash", rows=rows, trash_days=TRASH_DAYS,
+                           groups=_group_by_date(rows, "deleted_at"))
+
+
+@app.route("/admin/trash/delete-selected", methods=["POST"])
+@admin_required
+def admin_trash_delete_selected():
+    db = get_db()
+    n = 0
+    for raw in request.form.getlist("ids"):
+        try:
+            cid = int(raw)
+        except (TypeError, ValueError):
+            continue
+        row = db.fetchone("SELECT id FROM candidates WHERE id=?"
+                          " AND deleted_at IS NOT NULL", (cid,))
+        if row:
+            db.execute("DELETE FROM candidates WHERE id=?", (cid,))
+            n += 1
+    db.commit()
+    if n:
+        log_audit("Trash: selected records permanently deleted", f"{n} record(s)")
+        flash(f"{n} record(s) permanently deleted from Trash. "
+              f"This cannot be undone.", "del")
+    else:
+        flash("No records were selected.", "err")
+    return redirect(url_for("admin_trash"))
 
 
 @app.route("/admin/trash/<int:cid>/restore", methods=["POST"])
@@ -2068,10 +2137,21 @@ def admin_quicksearch():
 @app.route("/admin/activity")
 @admin_required
 def admin_activity():
-    rows = [dict(r) for r in get_db().fetchall(
-        "SELECT * FROM audit_log ORDER BY id DESC LIMIT 200")]
+    period = request.args.get("period", "today")
+    if period not in ("today", "week", "month", "all"):
+        period = "today"
+    cutoff, label = _period_cutoff(period)
+    if cutoff:
+        rows = [dict(r) for r in get_db().fetchall(
+            "SELECT * FROM audit_log WHERE ts>=? ORDER BY id DESC LIMIT 1000",
+            (cutoff,))]
+    else:
+        rows = [dict(r) for r in get_db().fetchall(
+            "SELECT * FROM audit_log ORDER BY id DESC LIMIT 1000")]
     return render_template("admin_activity.html", uni=UNI_NAME, title=PORTAL_TITLE,
-                           active="activity", rows=rows)
+                           active="activity", rows=rows, period=period,
+                           period_label=label,
+                           groups=_group_by_date(rows, "ts"))
 
 
 # ---------------- admin: backups ----------------
@@ -2083,10 +2163,92 @@ BACKUP_COLS = ("name", "father_name", "cnic", "program", "roll_no", "discipline"
 @app.route("/admin/backups")
 @admin_required
 def admin_backups():
-    rows = [dict(r) for r in get_db().fetchall(
+    db = get_db()
+    rows = [dict(r) for r in db.fetchall(
         "SELECT id, ts, reason, count FROM backups ORDER BY id DESC")]
+
+    def _count(sql, params=()):
+        r = db.fetchone(sql, params)
+        return (r["c"] if isinstance(r, dict) else r[0]) if r else 0
+
+    now = datetime.now()
+    clean = {
+        "trash": _count("SELECT COUNT(*) AS c FROM candidates"
+                        " WHERE deleted_at IS NOT NULL"),
+        "lookups_old": _count(
+            "SELECT COUNT(*) AS c FROM lookups WHERE ts<?",
+            ((now - timedelta(days=30)).strftime("%Y-%m-%d %H:%M"),)),
+        "activity_old": _count(
+            "SELECT COUNT(*) AS c FROM audit_log WHERE ts<?",
+            ((now - timedelta(days=90)).strftime("%Y-%m-%d %H:%M"),)),
+    }
     return render_template("admin_backups.html", uni=UNI_NAME, title=PORTAL_TITLE,
-                           active="backups", rows=rows)
+                           active="backups", rows=rows,
+                           groups=_group_by_date(rows, "ts"), clean=clean)
+
+
+@app.route("/admin/backups/<int:bid>/delete", methods=["POST"])
+@admin_required
+def admin_backup_delete(bid):
+    db = get_db()
+    row = db.fetchone("SELECT id FROM backups WHERE id=?", (bid,))
+    if not row:
+        flash("Backup not found.", "err")
+        return redirect(url_for("admin_backups"))
+    db.execute("DELETE FROM backups WHERE id=?", (bid,))
+    db.commit()
+    log_audit("Backup deleted", f"backup #{bid}")
+    flash(f"Backup #{bid} deleted.", "del")
+    return redirect(url_for("admin_backups"))
+
+
+@app.route("/admin/backups/delete-selected", methods=["POST"])
+@admin_required
+def admin_backups_delete_selected():
+    db = get_db()
+    n = 0
+    for raw in request.form.getlist("ids"):
+        try:
+            bid = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if db.fetchone("SELECT id FROM backups WHERE id=?", (bid,)):
+            db.execute("DELETE FROM backups WHERE id=?", (bid,))
+            n += 1
+    db.commit()
+    if n:
+        log_audit("Backups deleted (bulk)", f"{n} backup(s)")
+        flash(f"{n} backup(s) deleted.", "del")
+    else:
+        flash("No backups were selected.", "err")
+    return redirect(url_for("admin_backups"))
+
+
+@app.route("/admin/cleanup", methods=["POST"])
+@admin_required
+def admin_cleanup():
+    """One-click tidy-up: expired trash, lookup logs older than 30 days and
+    activity entries older than 90 days — the data that only loads the
+    system. Live records, sessions and backups are never touched here."""
+    db = get_db()
+    purged = _purge_old_trash()
+    now = datetime.now()
+    cut_lu = (now - timedelta(days=30)).strftime("%Y-%m-%d %H:%M")
+    cut_ac = (now - timedelta(days=90)).strftime("%Y-%m-%d %H:%M")
+    n_lu = db.fetchone("SELECT COUNT(*) AS c FROM lookups WHERE ts<?", (cut_lu,))
+    n_lu = n_lu["c"] if isinstance(n_lu, dict) else n_lu[0]
+    n_ac = db.fetchone("SELECT COUNT(*) AS c FROM audit_log WHERE ts<?", (cut_ac,))
+    n_ac = n_ac["c"] if isinstance(n_ac, dict) else n_ac[0]
+    db.execute("DELETE FROM lookups WHERE ts<?", (cut_lu,))
+    db.execute("DELETE FROM audit_log WHERE ts<?", (cut_ac,))
+    db.commit()
+    log_audit("System cleanup", f"{purged} expired trash record(s), "
+              f"{n_lu} lookup log(s) older than 30 days, "
+              f"{n_ac} activity entr(ies) older than 90 days removed")
+    flash(f"Cleanup done: {purged} expired trash record(s), {n_lu} old lookup "
+          f"log(s) and {n_ac} old activity entr(ies) removed. Live records "
+          f"and backups were not touched.")
+    return redirect(url_for("admin_backups"))
 
 
 @app.route("/admin/backups/<int:bid>/download")
@@ -2142,22 +2304,32 @@ def admin_backup_restore(bid):
 @app.route("/admin/lookups")
 @admin_required
 def admin_lookups():
+    period = request.args.get("period", "today")
+    if period not in ("today", "week", "month", "all"):
+        period = "today"
+    cutoff, label = _period_cutoff(period)
     db = get_db()
+    w = " WHERE ts>=?" if cutoff else ""
+    p = (cutoff,) if cutoff else ()
     try:
-        total = db.fetchone("SELECT COUNT(*) AS c FROM lookups")
+        total = db.fetchone(f"SELECT COUNT(*) AS c FROM lookups{w}", p)
         total = total["c"] if isinstance(total, dict) else total[0]
-        fails = db.fetchone("SELECT COUNT(*) AS c FROM lookups WHERE found=0")
+        fails = db.fetchone(f"SELECT COUNT(*) AS c FROM lookups{w}"
+                            + (" AND" if cutoff else " WHERE") + " found=0", p)
         fails = fails["c"] if isinstance(fails, dict) else fails[0]
         recent = [dict(r) for r in db.fetchall(
-            "SELECT * FROM lookups ORDER BY id DESC LIMIT 60")]
+            f"SELECT * FROM lookups{w} ORDER BY id DESC LIMIT 500", p)]
         top = [dict(r) for r in db.fetchall(
-            "SELECT cnic, COUNT(*) AS tries, MAX(ts) AS last FROM lookups "
-            "WHERE found=0 GROUP BY cnic ORDER BY tries DESC LIMIT 20")]
+            f"SELECT cnic, COUNT(*) AS tries, MAX(ts) AS last FROM lookups{w}"
+            + (" AND" if cutoff else " WHERE")
+            + " found=0 GROUP BY cnic ORDER BY tries DESC LIMIT 20", p)]
     except Exception:
         total, fails, recent, top = 0, 0, [], []
     return render_template("admin_lookups.html", uni=UNI_NAME, title=PORTAL_TITLE,
                            active="lookups", total=total, fails=fails,
-                           recent=recent, top=top)
+                           recent=recent, top=top, period=period,
+                           period_label=label,
+                           groups=_group_by_date(recent, "ts"))
 
 
 # ---------------- admin: merit list ----------------
