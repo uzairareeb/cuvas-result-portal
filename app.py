@@ -1099,8 +1099,11 @@ def build_cards_pdf(cards):
                             f"\u00a9 {card['footer_year']}   Cholistan University of Veterinary & Animal Sciences, Bahawalpur")
 
         c.showPage()
-        buf.seek(0)
+
     c.save()
+    buf.seek(0)  # rewind AFTER save: send_file reads from the current
+    # position — without this the response promises Content-Length
+    # bytes but delivers 0, and browsers hang on "Starting" forever.
     return buf
 
 # ---------------- admin side ----------------
