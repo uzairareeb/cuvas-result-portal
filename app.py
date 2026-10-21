@@ -651,7 +651,10 @@ def program_passing_pct(program):
 
 _DATE_FORMATS = ("%d-%b-%Y", "%d %b %Y", "%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y",
                  "%m/%d/%Y", "%b %d, %Y", "%d.%m.%Y", "%Y/%m/%d",
-                 "%Y-%m-%d %H:%M:%S", "%d-%b-%Y %H:%M:%S", "%d/%m/%Y %H:%M:%S")
+                 "%Y-%m-%d %H:%M:%S", "%d-%b-%Y %H:%M:%S", "%d/%m/%Y %H:%M:%S",
+                 "%d %B %Y", "%B %d, %Y", "%d-%B-%Y", "%d %b, %Y", "%B %d %Y",
+                 "%d-%b-%y", "%d/%m/%y", "%d-%m-%y", "%Y-%m-%d %H:%M",
+                 "%Y-%m-%dT%H:%M:%S")
 
 
 def fmt_cnic(cnic):
@@ -664,11 +667,20 @@ def fmt_cnic(cnic):
 
 def parse_date(s):
     s = (s or "").strip()
-    for f in _DATE_FORMATS:
-        try:
-            return datetime.strptime(s, f).date()
-        except ValueError:
-            continue
+    if not s:
+        return None
+    candidates = [s]
+    # Cleaned variant: "21st October, 2026" -> "21 October 2026"
+    cleaned = re.sub(r"(\d+)(st|nd|rd|th)\b", r"\1", s, flags=re.I)
+    cleaned = " ".join(cleaned.replace(",", " ").split())
+    if cleaned != s:
+        candidates.append(cleaned)
+    for cand in candidates:
+        for f in _DATE_FORMATS:
+            try:
+                return datetime.strptime(cand, f).date()
+            except ValueError:
+                continue
     return None
 
 
@@ -683,10 +695,18 @@ def fmt_date(d):
     return d.strftime("%b %d, %Y") if d else ""
 
 
+def valid_till_date(r):
+    """Valid Till for a record: test date + 1 year. If the test date is
+    missing or in an unreadable format, fall back to the upload date so
+    the card never shows a blank Valid Till."""
+    base = parse_date(r.get("test_date")) or parse_date(r.get("uploaded_at"))
+    return add_one_year(base) if base else None
+
+
 def build_card(r):
     """Assemble the result-card fields from a candidate record."""
     held = parse_date(r.get("test_date"))
-    valid = add_one_year(held) if held else None
+    valid = valid_till_date(r)
     pct = program_passing_pct(r.get("program"))
     passing_marks, status = calc_result(r.get("obtained"), r.get("total"), pct)
     obtained_s = fmt_num(r.get("obtained"))
@@ -1344,7 +1364,7 @@ def admin_students():
     page = request.args.get("page", 1, type=int) or 1
     per_page = 15
     act = active_session()
-    sess_arg = request.args.get("session", "active")
+    sess_arg = request.args.get("session", "all")
     if sess_arg == "all":
         sess_id = None
     elif sess_arg.isdigit():
@@ -1358,6 +1378,9 @@ def admin_students():
     pages = max(1, (total + per_page - 1) // per_page)
     page = min(max(page, 1), pages)
     page_rows = rows[(page - 1) * per_page:page * per_page]
+    sess_map = {s["id"]: s["name"] for s in get_sessions()}
+    for r in page_rows:
+        r["session_label"] = sess_map.get(r.get("session_id"), "")
     return render_template("admin_students.html", uni=UNI_NAME, title=PORTAL_TITLE,
                            active="students", rows=page_rows, page=page, pages=pages,
                            total=total, q=q, program=program, degree=degree,
@@ -2544,7 +2567,7 @@ def _xlsx_response(rows, filename, _buf_only=False):
         cell.alignment = Alignment(horizontal="center")
     for r in rows:
         held = parse_date(r.get("test_date"))
-        valid = add_one_year(held) if held else None
+        valid = valid_till_date(r)
         opct = obtained_pct(r.get("obtained"), r.get("total"))
         ppct = program_passing_pct(r["program"])
         ws.append([r.get("name"), r.get("father_name"), r.get("cnic"),
