@@ -2,35 +2,72 @@
 {% block title %}Backups{% endblock %}
 {% block page_title %}Backups{% endblock %}
 {% block content %}
+<div class="card section" style="margin-bottom:16px">
+  <div class="section-head">
+    <span class="section-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg></span>
+    <h3>System Cleanup</h3>
+  </div>
+  <p class="hint" style="margin:0 0 12px">One click removes the data that only loads the system: <strong>{{ clean.trash }}</strong> record(s) currently in Trash (expired ones are removed), <strong>{{ clean.lookups_old }}</strong> lookup log(s) older than 30 days, and <strong>{{ clean.activity_old }}</strong> activity entr(ies) older than 90 days. Live records, sessions and backups are <strong>not</strong> touched.</p>
+  <form method="post" action="{{ url_for('admin_cleanup') }}" data-confirm="Run cleanup now? Expired Trash records, lookup logs older than 30 days and activity older than 90 days will be removed. Live records and backups stay untouched." data-confirm-title="Clean up the system?">
+    <button type="submit" class="btn primary">🧹 Clean Up Now</button>
+  </form>
+</div>
+
 <div class="card section">
   <div class="section-head">
     <span class="section-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg></span>
     <h3>Record backups</h3>
   </div>
-  <p class="hint" style="margin:0 0 14px">A backup is saved automatically before every upload, delete, bulk delete and restore. Restoring replaces ALL current records with the backup's records (a fresh backup of the current state is saved first).</p>
+  <p class="hint" style="margin:0 0 14px">A backup is saved automatically before every upload, delete, bulk delete and restore. Restoring replaces ALL current records with the backup's records (a fresh backup of the current state is saved first). Select backups you no longer need and delete them to keep the system light.</p>
   {% if rows %}
-  <div class="table-wrap">
-    <table>
-      <thead><tr><th>#</th><th>Saved at</th><th>Reason</th><th>Records</th><th style="text-align:right">Actions</th></tr></thead>
-      <tbody>
-        {% for r in rows %}
-        <tr>
-          <td>{{ r.id }}</td>
-          <td style="white-space:nowrap">{{ r.ts }}</td>
-          <td>{{ r.reason }}</td>
-          <td>{{ r.count }}</td>
-          <td style="text-align:right;white-space:nowrap">
-            <a class="btn ghost sm" href="{{ url_for('admin_backup_download', bid=r.id) }}">Download CSV</a>
-            <form method="post" action="{{ url_for('admin_backup_restore', bid=r.id) }}" style="display:inline"
-                  data-confirm="Restore backup #{{ r.id }}? This replaces ALL current records — a safety backup of the current data is saved first." data-confirm-danger="1" data-confirm-title="Restore this backup?" data-confirm-yes="Yes, Restore">
-              <button type="submit" class="btn danger sm">Restore</button>
-            </form>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+  <form id="backupBulkForm" method="post" action="{{ url_for('admin_backups_delete_selected') }}">
+    <div class="bulk-bar" style="margin-bottom:14px">
+      <span class="hint" style="margin:0">Select backups, then:</span>
+      <button type="submit" class="btn danger sm" data-confirm="Permanently delete the selected backups? This cannot be undone." data-confirm-danger="1" data-confirm-title="Delete selected backups?" data-confirm-yes="Yes, Delete">Delete Selected</button>
+    </div>
+  </form>
+  {% for g in groups %}
+  <details class="day-group" {% if loop.first %}open{% endif %}>
+    <summary><span class="dg-label">💾 Saved — {{ g.label }}</span><span class="dg-count">{{ g.rows|length }} backup{{ 's' if g.rows|length != 1 else '' }}</span></summary>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th><input type="checkbox" class="group-check" aria-label="Select all in this group"></th><th>#</th><th>Saved at</th><th>Reason</th><th>Records</th><th style="text-align:right">Actions</th></tr></thead>
+        <tbody>
+          {% for r in g.rows %}
+          <tr>
+            <td><input type="checkbox" class="row-check" name="ids" value="{{ r.id }}" form="backupBulkForm" aria-label="Select backup {{ r.id }}"></td>
+            <td>{{ r.id }}</td>
+            <td style="white-space:nowrap">{{ r.ts }}</td>
+            <td>{{ r.reason }}</td>
+            <td>{{ r.count }}</td>
+            <td style="text-align:right;white-space:nowrap">
+              <a class="btn ghost sm" href="{{ url_for('admin_backup_download', bid=r.id) }}">Download CSV</a>
+              <form method="post" action="{{ url_for('admin_backup_restore', bid=r.id) }}" style="display:inline"
+                    data-confirm="Restore backup #{{ r.id }}? This replaces ALL current records — a safety backup of the current data is saved first." data-confirm-danger="1" data-confirm-title="Restore this backup?" data-confirm-yes="Yes, Restore">
+                <button type="submit" class="btn danger sm">Restore</button>
+              </form>
+              <form method="post" action="{{ url_for('admin_backup_delete', bid=r.id) }}" style="display:inline"
+                    data-confirm="Permanently delete backup #{{ r.id }}? This cannot be undone." data-confirm-danger="1" data-confirm-title="Delete this backup?" data-confirm-yes="Yes, Delete">
+                <button type="submit" class="btn ghost sm">Delete</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </details>
+  {% endfor %}
+  <script>
+  (function () {
+    document.querySelectorAll('.group-check').forEach(function (all) {
+      all.addEventListener('change', function () {
+        var box = all.closest('details');
+        box.querySelectorAll('.row-check').forEach(function (c) { c.checked = all.checked; });
+      });
+    });
+  })();
+  </script>
   {% else %}
   <div class="empty"><p>No backups yet. The first one is created automatically before your next upload or delete.</p></div>
   {% endif %}

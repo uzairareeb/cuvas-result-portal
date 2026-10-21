@@ -3,42 +3,66 @@
 {% block page_title %}Trash{% endblock %}
 {% block content %}
 <div class="card section" style="margin-bottom:16px">
-  <p style="margin:0">Deleted student records stay here for {{ trash_days }} days. Restore a record to bring it back exactly as it was, or delete it forever. Records older than {{ trash_days }} days are removed automatically.</p>
+  <p style="margin:0">Deleted student records stay here for {{ trash_days }} days. Restore a record to bring it back exactly as it was, or delete it forever. Records older than {{ trash_days }} days are removed automatically. Select records to delete several at once.</p>
 </div>
 
-<div class="card section">
-  {% if rows %}
-  <div class="tbl-wrap">
-    <table class="tbl">
-      <thead>
-        <tr><th>Student</th><th>CNIC</th><th>Program</th><th>Degree</th><th>Session</th><th>Score</th><th>Deleted on</th><th>Auto-delete in</th><th style="text-align:right">Actions</th></tr>
-      </thead>
-      <tbody>
-        {% for r in rows %}
-        <tr>
-          <td><strong>{{ r.name }}</strong><br><span class="muted">{{ r.father_name or '' }}</span></td>
-          <td>{{ r.cnic }}</td>
-          <td><span class="pill prog">{{ r.program }}</span></td>
-          <td>{{ r.discipline or '—' }}</td>
-          <td>{{ r.session_label }}</td>
-          <td>{{ r.obtained if r.obtained is not none else '—' }} / {{ r.total if r.total is not none else '—' }}</td>
-          <td>{{ r.deleted_disp }}</td>
-          <td>{% if r.days_left == 0 %}<span class="pill" style="background:#fdecec;color:#b3261e">today</span>{% else %}{{ r.days_left }} day{{ 's' if r.days_left != 1 else '' }}{% endif %}</td>
-          <td style="text-align:right; white-space:nowrap">
-            <form method="post" action="{{ url_for('admin_trash_restore', cid=r.id) }}" style="display:inline">
-              <button class="btn small" type="submit" data-confirm="Restore this record? It will become visible to the student again." data-confirm-title="Restore Record">Restore</button>
-            </form>
-            <form method="post" action="{{ url_for('admin_trash_purge', cid=r.id) }}" style="display:inline">
-              <button class="btn small danger" type="submit" data-confirm="Delete this record FOREVER? This cannot be undone." data-confirm-danger="1" data-confirm-ok="Yes, Delete Forever" data-confirm-title="Delete Forever">Delete Forever</button>
-            </form>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+{% if rows %}
+<form id="trashBulkForm" method="post" action="{{ url_for('admin_trash_delete_selected') }}">
+  <div class="bulk-bar" style="margin-bottom:14px">
+    <span class="hint" style="margin:0">Select records, then:</span>
+    <button type="submit" class="btn danger sm" data-confirm="Permanently delete the selected records from Trash? This cannot be undone." data-confirm-danger="1" data-confirm-title="Delete selected forever?" data-confirm-yes="Yes, Delete Forever">Delete Selected Forever</button>
   </div>
-  {% else %}
+</form>
+{% for g in groups %}
+<details class="day-group" {% if loop.first %}open{% endif %}>
+  <summary><span class="dg-label">🗑️ Deleted — {{ g.label }}</span><span class="dg-count">{{ g.rows|length }} record{{ 's' if g.rows|length != 1 else '' }}</span></summary>
+  <div class="card section">
+    <div class="tbl-wrap">
+      <table class="tbl">
+        <thead>
+          <tr><th><input type="checkbox" class="group-check" aria-label="Select all in this group"></th><th>Student</th><th>CNIC</th><th>Program</th><th>Degree</th><th>Session</th><th>Score</th><th>Deleted on</th><th>Auto-delete in</th><th style="text-align:right">Actions</th></tr>
+        </thead>
+        <tbody>
+          {% for r in g.rows %}
+          <tr>
+            <td><input type="checkbox" class="row-check" name="ids" value="{{ r.id }}" form="trashBulkForm" aria-label="Select {{ r.name }}"></td>
+            <td><strong>{{ r.name }}</strong><br><span class="muted">{{ r.father_name or '' }}</span></td>
+            <td>{{ r.cnic }}</td>
+            <td><span class="pill prog">{{ r.program }}</span></td>
+            <td>{{ r.discipline or '—' }}</td>
+            <td>{{ r.session_label }}</td>
+            <td>{{ r.obtained if r.obtained is not none else '—' }} / {{ r.total if r.total is not none else '—' }}</td>
+            <td>{{ r.deleted_disp }}</td>
+            <td>{% if r.days_left == 0 %}<span class="pill" style="background:#fdecec;color:#b3261e">today</span>{% else %}{{ r.days_left }} day{{ 's' if r.days_left != 1 else '' }}{% endif %}</td>
+            <td style="text-align:right; white-space:nowrap">
+              <form method="post" action="{{ url_for('admin_trash_restore', cid=r.id) }}" style="display:inline">
+                <button class="btn small" type="submit" data-confirm="Restore this record? It will become visible to the student again." data-confirm-title="Restore Record">Restore</button>
+              </form>
+              <form method="post" action="{{ url_for('admin_trash_purge', cid=r.id) }}" style="display:inline">
+                <button class="btn small danger" type="submit" data-confirm="Delete this record FOREVER? This cannot be undone." data-confirm-danger="1" data-confirm-ok="Yes, Delete Forever" data-confirm-title="Delete Forever">Delete Forever</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</details>
+{% endfor %}
+<script>
+(function () {
+  document.querySelectorAll('.group-check').forEach(function (all) {
+    all.addEventListener('change', function () {
+      var box = all.closest('details');
+      box.querySelectorAll('.row-check').forEach(function (c) { c.checked = all.checked; });
+    });
+  });
+})();
+</script>
+{% else %}
+<div class="card section">
   <p class="muted" style="margin:0">Trash is empty. When you delete a student record, it will appear here for {{ trash_days }} days before it is removed for good.</p>
-  {% endif %}
 </div>
+{% endif %}
 {% endblock %}

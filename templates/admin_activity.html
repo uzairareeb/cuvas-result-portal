@@ -5,21 +5,32 @@
 <div class="card section">
   <div class="section-head">
     <span class="section-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v4l3 2"/><circle cx="12" cy="12" r="10"/></svg></span>
-    <h3>Recent admin activity</h3>
+    <h3>Admin activity — {{ period_label }}</h3>
   </div>
-  {% if rows %}
-  <div class="table-wrap">
-    <table>
-      <thead><tr><th>Time</th><th>Action</th><th>Details</th></tr></thead>
-      <tbody>
-        {% for r in rows %}
-        <tr><td style="white-space:nowrap">{{ r.ts }}</td><td><strong>{{ r.action }}</strong></td><td>{{ r.detail or '' }}</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  <div class="ptabs">
+    <a href="{{ url_for('admin_activity', period='today') }}" class="{{ 'on' if period == 'today' }}">Today</a>
+    <a href="{{ url_for('admin_activity', period='week') }}" class="{{ 'on' if period == 'week' }}">Last 7 days</a>
+    <a href="{{ url_for('admin_activity', period='month') }}" class="{{ 'on' if period == 'month' }}">Last 30 days</a>
+    <a href="{{ url_for('admin_activity', period='all') }}" class="{{ 'on' if period == 'all' }}">All</a>
   </div>
+  {% if groups %}
+  {% for g in groups %}
+  <details class="day-group" {% if loop.first %}open{% endif %}>
+    <summary><span class="dg-label">📅 {{ g.label }}</span><span class="dg-count">{{ g.rows|length }} entr{{ 'ies' if g.rows|length != 1 else 'y' }}</span></summary>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Time</th><th>Action</th><th>Details</th></tr></thead>
+        <tbody>
+          {% for r in g.rows %}
+          <tr><td style="white-space:nowrap">{{ r.ts }}</td><td><strong>{{ r.action }}</strong></td><td>{{ r.detail or '' }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </details>
+  {% endfor %}
   {% else %}
-  <div class="empty"><p>No activity recorded yet.</p></div>
+  <div class="empty"><p>No activity recorded in this period.</p></div>
   {% endif %}
 </div>
 {% endblock %}

@@ -2,8 +2,14 @@
 {% block title %}Lookup Log{% endblock %}
 {% block page_title %}Lookup Log{% endblock %}
 {% block content %}
+<div class="ptabs" style="margin-bottom:16px">
+  <a href="{{ url_for('admin_lookups', period='today') }}" class="{{ 'on' if period == 'today' }}">Today</a>
+  <a href="{{ url_for('admin_lookups', period='week') }}" class="{{ 'on' if period == 'week' }}">Last 7 days</a>
+  <a href="{{ url_for('admin_lookups', period='month') }}" class="{{ 'on' if period == 'month' }}">Last 30 days</a>
+  <a href="{{ url_for('admin_lookups', period='all') }}" class="{{ 'on' if period == 'all' }}">All</a>
+</div>
 <div class="stats" style="margin-bottom:18px">
-  <div class="stat"><div><div class="n">{{ total }}</div><div class="t">Total result lookups</div></div></div>
+  <div class="stat"><div><div class="n">{{ total }}</div><div class="t">Result lookups — {{ period_label }}</div></div></div>
   <div class="stat"><div><div class="n">{{ total - fails }}</div><div class="t">Result found</div></div></div>
   <div class="stat"><div><div class="n">{{ fails }}</div><div class="t">Result not found</div></div></div>
 </div>
@@ -13,7 +19,7 @@
       <span class="section-icon bad"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></span>
       <h3>Most failed CNICs</h3>
     </div>
-    <p class="hint" style="margin:0 0 12px">CNICs students searched for but no record exists. Repeated failures often mean a data-entry mistake in the uploaded list — or a mistyped CNIC by the student.</p>
+    <p class="hint" style="margin:0 0 12px">CNICs students searched for but no record exists ({{ period_label|lower }}). Repeated failures often mean a data-entry mistake in the uploaded list — or a mistyped CNIC by the student.</p>
     {% if top %}
     <div class="table-wrap">
       <table>
@@ -26,31 +32,36 @@
       </table>
     </div>
     {% else %}
-    <div class="empty"><p>No failed lookups yet.</p></div>
+    <div class="empty"><p>No failed lookups in this period.</p></div>
     {% endif %}
   </div>
   <div class="card section">
     <div class="section-head">
       <span class="section-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span>
-      <h3>Recent lookups</h3>
+      <h3>Lookups by day</h3>
     </div>
-    {% if recent %}
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Time</th><th>CNIC</th><th>Outcome</th></tr></thead>
-        <tbody>
-          {% for r in recent %}
-          <tr>
-            <td style="white-space:nowrap">{{ r.ts }}</td>
-            <td>{{ r.cnic }}</td>
-            <td>{% if r.found %}<span class="pill q">Found</span>{% else %}<span class="pill nq">Not found</span>{% endif %}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
+    {% if groups %}
+    {% for g in groups %}
+    <details class="day-group" {% if loop.first %}open{% endif %}>
+      <summary><span class="dg-label">📅 {{ g.label }}</span><span class="dg-count">{{ g.rows|length }} lookup{{ 's' if g.rows|length != 1 else '' }}</span></summary>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Time</th><th>CNIC</th><th>Outcome</th></tr></thead>
+          <tbody>
+            {% for r in g.rows %}
+            <tr>
+              <td style="white-space:nowrap">{{ r.ts }}</td>
+              <td>{{ r.cnic }}</td>
+              <td>{% if r.found %}<span class="pill q">Found</span>{% else %}<span class="pill nq">Not found</span>{% endif %}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
+    {% endfor %}
     {% else %}
-    <div class="empty"><p>No lookups recorded yet.</p></div>
+    <div class="empty"><p>No lookups recorded in this period.</p></div>
     {% endif %}
   </div>
 </div>
