@@ -654,7 +654,9 @@ _DATE_FORMATS = ("%d-%b-%Y", "%d %b %Y", "%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y",
                  "%Y-%m-%d %H:%M:%S", "%d-%b-%Y %H:%M:%S", "%d/%m/%Y %H:%M:%S",
                  "%d %B %Y", "%B %d, %Y", "%d-%B-%Y", "%d %b, %Y", "%B %d %Y",
                  "%d-%b-%y", "%d/%m/%y", "%d-%m-%y", "%Y-%m-%d %H:%M",
-                 "%Y-%m-%dT%H:%M:%S", "%b %d %Y", "%b %d, %y", "%B %d, %y")
+                 "%Y-%m-%dT%H:%M:%S", "%b %d %Y", "%b %d, %y", "%B %d, %y",
+                 "%b %d, %Y %I:%M:%S %p", "%b %d, %Y %I:%M %p",
+                 "%B %d, %Y %I:%M:%S %p", "%d %B %Y %I:%M:%S %p")
 
 
 def fmt_cnic(cnic):
@@ -681,12 +683,30 @@ def parse_date(s):
                     r"\1", dotted, flags=re.I)
     if dotted != cleaned:
         candidates.append(dotted)
+    # Stray wrapping characters: "'Aug 26, 2025" / "Aug 26, 2025."
+    trimmed = dotted.strip("'\" ").rstrip(".")
+    if trimmed and trimmed != dotted:
+        candidates.append(trimmed)
+    # Weekday prefix: "Tuesday, Aug 26, 2025"
+    nowd = re.sub(r"^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)[a-z]*,\s*", "", dotted,
+                  flags=re.I)
+    if nowd != dotted:
+        candidates.append(nowd)
     for cand in candidates:
         for f in _DATE_FORMATS:
             try:
                 return datetime.strptime(cand, f).date()
             except ValueError:
                 continue
+    # Last resort: pull a "26 Aug 2025" / "Aug 26, 2025" shaped substring
+    # out of a longer string (time suffixes, notes, brackets, ...).
+    m = re.search(
+        r"(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)"
+        r"[a-z]*\.?\s+\d{4}"
+        r"|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+"
+        r"\d{1,2}(?:st|nd|rd|th)?,?\s+\d{4})", s, flags=re.I)
+    if m and m.group(1) != s:
+        return parse_date(m.group(1))
     return None
 
 
