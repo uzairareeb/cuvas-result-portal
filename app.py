@@ -809,7 +809,7 @@ def result(cnic):
             })
         return render_template("result_choices.html", uni=UNI_NAME,
                                short=UNI_SHORT, title=PORTAL_TITLE,
-                               cnic_disp=fmt_cnic(cnic),
+                               cnic_disp=fmt_cnic(cnic), cnic_raw=cnic, sid=sid,
                                sess_name=session_name(sid) if sid else "",
                                apps=apps)
     card = build_card(chosen)
@@ -835,6 +835,25 @@ def result_pdf(cnic):
     card = build_card(chosen)
     buf = build_pdf(card)
     filename = f"CUVAS_AdmissionTest_Result_{card['cnic_raw']}.pdf"
+    return send_file(buf, mimetype="application/pdf",
+                     as_attachment=True, download_name=filename)
+
+
+@app.route("/result/<cnic>/all-pdf")
+def result_all_pdf(cnic):
+    """ONE PDF containing the result cards of ALL the student's
+    applications in the selected session (one card per page)."""
+    cnic = norm_cnic(cnic)
+    sid = request.args.get("s", type=int)
+    if not sid:
+        act = active_session()
+        sid = act["id"] if act else None
+    rows = _application_rows(cnic, sid)
+    if not rows:
+        return "Result not found.", 404
+    cards = [build_card(r) for r in rows]
+    buf = build_cards_pdf(cards)
+    filename = f"CUVAS_Result_Cards_{cnic}.pdf"
     return send_file(buf, mimetype="application/pdf",
                      as_attachment=True, download_name=filename)
 
@@ -891,11 +910,14 @@ def verify(cnic):
 
 # ---------------- PDF generation ----------------
 def build_pdf(card):
-    """Result card PDF matching the web card exactly.
+    """Single-card PDF (one card-sized page)."""
+    return build_cards_pdf([card])
 
-    The page itself is card-sized (no A4 whitespace): same layout,
-    same proportions as the on-screen result card.
-    """
+
+def build_cards_pdf(cards):
+    """Result card PDF(s) matching the web card exactly. One card-sized
+    page per card: a single card for the normal download, or every
+    application of a student for 'Download All My Cards'."""
     from reportlab.lib import colors
     from reportlab.pdfgen import canvas
 
@@ -913,125 +935,126 @@ def build_pdf(card):
         c.setFillColor(SOLID)
         c.rect(x, y, w, h, stroke=0, fill=1)
 
-    # Card border
-    bx, bw = 14, W - 28
-    btop, bbot = H - 14, 14
-    c.setStrokeColor(DARK)
-    c.setLineWidth(1.2)
-    c.rect(bx, bbot, bw, btop - bbot, stroke=1, fill=0)
+    for card in cards:
+        # Card border
+        bx, bw = 14, W - 28
+        btop, bbot = H - 14, 14
+        c.setStrokeColor(DARK)
+        c.setLineWidth(1.2)
+        c.rect(bx, bbot, bw, btop - bbot, stroke=1, fill=0)
 
-    # Header: official logo + university name
-    lh = 46
-    lw = lh * 270 / 148
-    lx, ly = bx + 16, btop - 16 - lh
-    logo_path = os.path.join(BASE_DIR, "static", "img", "cuvas-logo.png")
-    if os.path.exists(logo_path):
-        c.drawImage(logo_path, lx, ly, lw, lh, preserveAspectRatio=True)
-    c.setFont("Helvetica-Bold", 13)
-    c.setFillColor(DARK)
-    c.drawString(lx + lw + 12, ly + 17,
-                 "Cholistan University of Veterinary & Animal Sciences, Bahawalpur")
-
-    # Solid rule
-    band(bx + 16, ly - 12, bw - 32, 3)
-
-    # Title block
-    cx = bx + bw / 2
-    c.setFillColor(DARK)
-    c.setFont("Helvetica", 12.5)
-    c.drawCentredString(cx, ly - 42, "CUVAS - Admission Test (Postgraduate)")
-    c.setFillColor(SOLID)
-    c.setFont("Helvetica-Bold", 12.5)
-    c.drawCentredString(cx, ly - 64, f"Held On:  {card['held_on']}")
-
-    # Candidate fields (full width, two columns)
-    fy = ly - 106
-    col1_x = bx + 16
-    col2_x = bx + 16 + (bw - 32) / 2
-    val_dx = 104
-    c.setFillColor(DARK)
-    c.setFont("Helvetica-Bold", 11)
-    c.drawString(col1_x, fy, "Name:")
-    c.drawString(col2_x, fy, "Father's Name:")
-    c.drawString(col1_x, fy - 34, "CNIC:")
-    c.drawString(col2_x, fy - 34, "Applied Degree:")
-    c.setFont("Helvetica", 11)
-    c.drawString(col1_x + val_dx, fy, card["name"])
-    c.drawString(col2_x + val_dx, fy, card["father_name"])
-    c.drawString(col1_x + val_dx, fy - 34, card["cnic"])
-    c.drawString(col2_x + val_dx, fy - 34, card["degree"])
-
-    # Marks table
-    tx, tw = bx + 16, bw - 32
-    ty, rh = fy - 66, 30
-    pairs = [  # (label, label_w, value_w)
-        [("Total Marks:", 124, 110), ("Obtained Marks:", 150, 86),
-         ("Valid Till:", 100, 130)],
-        [("Passing %:", 124, 110), ("Result Status:", 150, 316)],
-    ]
-    values = {"Total Marks:": card["total"], "Obtained Marks:": card["obtained_display"],
-              "Valid Till:": card["valid_till"], "Passing %:": card["passing_pct"],
-              "Result Status:": card["status"]}
-    c.setLineWidth(1)
-    for row_i, cells in enumerate(pairs):
-        ry = ty - row_i * rh
-        x = tx
-        for lab, lab_w, val_w in cells:
-            val = values[lab]
-            c.setFillColor(LBL_BG)
-            c.rect(x, ry - rh, lab_w, rh, stroke=0, fill=1)
-            c.setFillColor(DARK)
-            c.setFont("Helvetica-Bold", 11)
-            c.drawCentredString(x + lab_w / 2, ry - 20, lab)
-            c.setFillColor(colors.white)
-            c.rect(x + lab_w, ry - rh, val_w, rh, stroke=0, fill=1)
-            if lab == "Result Status:":
-                c.setFillColor(SOLID if val == "Qualified" else RED)
-                c.setFont("Helvetica-Bold", 11.5)
-            else:
-                c.setFillColor(DARK)
-                c.setFont("Helvetica", 11)
-            c.drawCentredString(x + lab_w + val_w / 2, ry - 20, str(val))
-            c.setStrokeColor(LINE)
-            c.rect(x, ry - rh, lab_w, rh, stroke=1, fill=0)
-            c.rect(x + lab_w, ry - rh, val_w, rh, stroke=1, fill=0)
-            x += lab_w + val_w
-
-    # Disclaimer note (italic, centered) between table and footer
-    from reportlab.platypus import Paragraph
-    from reportlab.lib.styles import ParagraphStyle
-    from reportlab.lib.enums import TA_CENTER
-    note_style = ParagraphStyle("note", fontName="Helvetica-Oblique", fontSize=10.5,
-                                leading=14.5, alignment=TA_CENTER, textColor=DARK)
-    note = Paragraph("NOTE: This is online generated result card. Errors and Omissions "
-                     "are expected. If you have any query please contact at "
-                     "das@cuvas.edu.pk.", note_style)
-    _nw, nh = note.wrap(tw - 20, 120)
-    note.drawOn(c, tx + 10, 140 - nh)
-
-    # QR verification code (bottom-right, clear of the note and the footer)
-    try:
-        from reportlab.lib.utils import ImageReader
-        qs = 46
-        qx, qy = bx + bw - 16 - qs, bbot + 44
-        c.drawImage(ImageReader(make_qr_png(card["verify_url"])), qx, qy, qs, qs)
+        # Header: official logo + university name
+        lh = 46
+        lw = lh * 270 / 148
+        lx, ly = bx + 16, btop - 16 - lh
+        logo_path = os.path.join(BASE_DIR, "static", "img", "cuvas-logo.png")
+        if os.path.exists(logo_path):
+            c.drawImage(logo_path, lx, ly, lw, lh, preserveAspectRatio=True)
+        c.setFont("Helvetica-Bold", 13)
         c.setFillColor(DARK)
-        c.setFont("Helvetica", 8.5)
-        c.drawRightString(qx - 8, qy + qs / 2 - 3, "Scan to verify this result")
-    except Exception:
-        pass
+        c.drawString(lx + lw + 12, ly + 17,
+                     "Cholistan University of Veterinary & Animal Sciences, Bahawalpur")
 
-    # Solid footer band
-    fh = 36
-    band(bx, bbot, bw, fh)
-    c.setFillColor(colors.white)
-    c.setFont("Helvetica", 10.5)
-    c.drawCentredString(cx, bbot + 13,
-                        f"\u00a9 {card['footer_year']}   Cholistan University of Veterinary & Animal Sciences, Bahawalpur")
+        # Solid rule
+        band(bx + 16, ly - 12, bw - 32, 3)
 
-    c.showPage()
+        # Title block
+        cx = bx + bw / 2
+        c.setFillColor(DARK)
+        c.setFont("Helvetica", 12.5)
+        c.drawCentredString(cx, ly - 42, "CUVAS - Admission Test (Postgraduate)")
+        c.setFillColor(SOLID)
+        c.setFont("Helvetica-Bold", 12.5)
+        c.drawCentredString(cx, ly - 64, f"Held On:  {card['held_on']}")
+
+        # Candidate fields (full width, two columns)
+        fy = ly - 106
+        col1_x = bx + 16
+        col2_x = bx + 16 + (bw - 32) / 2
+        val_dx = 104
+        c.setFillColor(DARK)
+        c.setFont("Helvetica-Bold", 11)
+        c.drawString(col1_x, fy, "Name:")
+        c.drawString(col2_x, fy, "Father's Name:")
+        c.drawString(col1_x, fy - 34, "CNIC:")
+        c.drawString(col2_x, fy - 34, "Applied Degree:")
+        c.setFont("Helvetica", 11)
+        c.drawString(col1_x + val_dx, fy, card["name"])
+        c.drawString(col2_x + val_dx, fy, card["father_name"])
+        c.drawString(col1_x + val_dx, fy - 34, card["cnic"])
+        c.drawString(col2_x + val_dx, fy - 34, card["degree"])
+
+        # Marks table
+        tx, tw = bx + 16, bw - 32
+        ty, rh = fy - 66, 30
+        pairs = [  # (label, label_w, value_w)
+            [("Total Marks:", 124, 110), ("Obtained Marks:", 150, 86),
+             ("Valid Till:", 100, 130)],
+            [("Passing %:", 124, 110), ("Result Status:", 150, 316)],
+        ]
+        values = {"Total Marks:": card["total"], "Obtained Marks:": card["obtained_display"],
+                  "Valid Till:": card["valid_till"], "Passing %:": card["passing_pct"],
+                  "Result Status:": card["status"]}
+        c.setLineWidth(1)
+        for row_i, cells in enumerate(pairs):
+            ry = ty - row_i * rh
+            x = tx
+            for lab, lab_w, val_w in cells:
+                val = values[lab]
+                c.setFillColor(LBL_BG)
+                c.rect(x, ry - rh, lab_w, rh, stroke=0, fill=1)
+                c.setFillColor(DARK)
+                c.setFont("Helvetica-Bold", 11)
+                c.drawCentredString(x + lab_w / 2, ry - 20, lab)
+                c.setFillColor(colors.white)
+                c.rect(x + lab_w, ry - rh, val_w, rh, stroke=0, fill=1)
+                if lab == "Result Status:":
+                    c.setFillColor(SOLID if val == "Qualified" else RED)
+                    c.setFont("Helvetica-Bold", 11.5)
+                else:
+                    c.setFillColor(DARK)
+                    c.setFont("Helvetica", 11)
+                c.drawCentredString(x + lab_w + val_w / 2, ry - 20, str(val))
+                c.setStrokeColor(LINE)
+                c.rect(x, ry - rh, lab_w, rh, stroke=1, fill=0)
+                c.rect(x + lab_w, ry - rh, val_w, rh, stroke=1, fill=0)
+                x += lab_w + val_w
+
+        # Disclaimer note (italic, centered) between table and footer
+        from reportlab.platypus import Paragraph
+        from reportlab.lib.styles import ParagraphStyle
+        from reportlab.lib.enums import TA_CENTER
+        note_style = ParagraphStyle("note", fontName="Helvetica-Oblique", fontSize=10.5,
+                                    leading=14.5, alignment=TA_CENTER, textColor=DARK)
+        note = Paragraph("NOTE: This is online generated result card. Errors and Omissions "
+                         "are expected. If you have any query please contact at "
+                         "das@cuvas.edu.pk.", note_style)
+        _nw, nh = note.wrap(tw - 20, 120)
+        note.drawOn(c, tx + 10, 140 - nh)
+
+        # QR verification code (bottom-right, clear of the note and the footer)
+        try:
+            from reportlab.lib.utils import ImageReader
+            qs = 46
+            qx, qy = bx + bw - 16 - qs, bbot + 44
+            c.drawImage(ImageReader(make_qr_png(card["verify_url"])), qx, qy, qs, qs)
+            c.setFillColor(DARK)
+            c.setFont("Helvetica", 8.5)
+            c.drawRightString(qx - 8, qy + qs / 2 - 3, "Scan to verify this result")
+        except Exception:
+            pass
+
+        # Solid footer band
+        fh = 36
+        band(bx, bbot, bw, fh)
+        c.setFillColor(colors.white)
+        c.setFont("Helvetica", 10.5)
+        c.drawCentredString(cx, bbot + 13,
+                            f"\u00a9 {card['footer_year']}   Cholistan University of Veterinary & Animal Sciences, Bahawalpur")
+
+        c.showPage()
+        buf.seek(0)
     c.save()
-    buf.seek(0)
     return buf
 
 # ---------------- admin side ----------------
