@@ -1415,7 +1415,9 @@ def admin_students():
                            total=total, q=q, program=program, degree=degree,
                            degrees=_degree_options(), status=status,
                            per_page=per_page, sessions=get_sessions(),
-                           sess_arg=sess_arg)
+                           sess_arg=sess_arg,
+                           phd_pct=get_setting("phd_passing_percent", "60"),
+                           mphil_pct=get_setting("mphil_passing_percent", "50"))
 
 
 @app.route("/admin/export")

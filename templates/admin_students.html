@@ -57,18 +57,16 @@
       <button type="submit" name="action" value="delete" class="btn danger sm" data-confirm="Delete the selected records permanently? A backup is saved automatically first." data-confirm-danger="1" data-confirm-title="Delete selected records?" data-confirm-yes="Yes, Delete">Delete Selected</button>
     </div>
   </form>
-  <div class="table-wrap table-wide">
+  <div class="table-wrap table-fit">
     <table>
-      <thead><tr><th><input type="checkbox" id="checkAll" aria-label="Select all on this page"></th><th>Name</th><th>CNIC</th><th>Program</th><th>Applied Degree</th><th>Session</th><th>Marks</th><th>Status</th><th>Held On</th><th style="text-align:right">Actions</th></tr></thead>
+      <thead><tr><th><input type="checkbox" id="checkAll" aria-label="Select all on this page"></th><th>Name</th><th>CNIC</th><th>Applied Degree</th><th>Marks</th><th>Status</th><th>Held On</th><th style="text-align:right">Actions</th></tr></thead>
       <tbody>
         {% for r in rows %}
         <tr>
           <td><input type="checkbox" class="row-check" name="ids" value="{{ r.id }}" form="bulkForm" aria-label="Select {{ r.name }}"></td>
           <td><strong>{{ r.name }}</strong><br><span class="hint">{{ r.father_name }}</span></td>
           <td>{{ r.cnic }}</td>
-          <td><span class="pill prog">{{ r.program }}</span></td>
-          <td>{{ r.discipline }}</td>
-          <td class="hint">{{ r.session_label }}</td>
+          <td>{{ r.discipline }}<br><span class="hint">{{ r.program }}</span></td>
           <td>{{ r.obtained }} / {{ r.total }}</td>
           <td>
             {% if r.status == 'Qualified' %}
@@ -80,10 +78,14 @@
           <td>{{ r.test_date }}</td>
           <td style="text-align:right;white-space:nowrap">
             <a class="btn ghost sm" href="{{ url_for('result', cnic=r.cnic, s=r.session_id, app=r.id) }}" target="_blank" rel="noopener">View Card</a>
-            <a class="btn ghost sm" href="{{ url_for('admin_edit_student', cid=r.id) }}">
+            <button type="button" class="btn ghost sm edit-btn"
+              data-id="{{ r.id }}" data-name="{{ r.name }}" data-father="{{ r.father_name or '' }}"
+              data-cnic="{{ r.cnic }}" data-program="{{ r.program }}" data-discipline="{{ r.discipline or '' }}"
+              data-test-date="{{ r.test_date or '' }}" data-total="{{ r.total if r.total is not none else '' }}"
+              data-obtained="{{ r.obtained if r.obtained is not none else '' }}" data-status="{{ r.status }}">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
               Edit
-            </a>
+            </button>
             <form method="post" action="{{ url_for('admin_delete_student', cid=r.id) }}" style="display:inline"
                   data-confirm="Delete the record of {{ r.name }}? This cannot be undone — a backup is saved automatically first." data-confirm-danger="1" data-confirm-title="Delete this record?" data-confirm-yes="Yes, Delete">
               <button type="submit" class="btn danger sm">
@@ -132,12 +134,113 @@
   {% endif %}
 </div>
 
+<!-- Edit-record popup: update a student without leaving this page -->
+<div class="amodal-overlay" id="editOverlay" hidden>
+  <div class="amodal wide" role="dialog" aria-modal="true" aria-labelledby="editTitle">
+    <div class="section-head">
+      <span class="section-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg></span>
+      <h3 id="editTitle">Edit Record</h3>
+      <button type="button" class="modal-x" data-close-edit aria-label="Close">&times;</button>
+    </div>
+    <form method="post" id="editForm" data-confirm="Save the changes to this student's record?" data-confirm-title="Update record?" data-confirm-yes="Yes, Save Changes">
+      <div class="grid2">
+        <div>
+          <label class="f-label" for="e-name">Name</label>
+          <input type="text" class="no-icon" id="e-name" name="name" required>
+        </div>
+        <div>
+          <label class="f-label" for="e-father_name">Father's Name</label>
+          <input type="text" class="no-icon" id="e-father_name" name="father_name">
+        </div>
+      </div>
+      <div class="grid2">
+        <div>
+          <label class="f-label" for="e-cnic">CNIC</label>
+          <input type="text" class="no-icon" id="e-cnic" name="cnic" required>
+        </div>
+        <div>
+          <label class="f-label" for="e-program">Program</label>
+          <select class="no-icon" id="e-program" name="program">
+            <option value="PhD">PhD ({{ phd_pct }}% to pass)</option>
+            <option value="MPhil">MPhil ({{ mphil_pct }}% to pass)</option>
+          </select>
+        </div>
+      </div>
+      <div class="grid2">
+        <div>
+          <label class="f-label" for="e-discipline">Applied Degree</label>
+          <input type="text" class="no-icon" id="e-discipline" name="discipline">
+        </div>
+        <div>
+          <label class="f-label" for="e-test_date">Held On</label>
+          <input type="text" class="no-icon" id="e-test_date" name="test_date" placeholder="15-Sep-2025">
+        </div>
+      </div>
+      <div class="grid2">
+        <div>
+          <label class="f-label" for="e-total">Total Marks</label>
+          <input type="number" class="no-icon" id="e-total" name="total" step="any" min="0" required>
+        </div>
+        <div>
+          <label class="f-label" for="e-obtained">Obtained Marks</label>
+          <input type="number" class="no-icon" id="e-obtained" name="obtained" step="any" min="0" required>
+        </div>
+      </div>
+      <p class="hint" id="editStatus"></p>
+      <div class="amodal-actions">
+        <button type="button" class="btn ghost" data-close-edit>Cancel</button>
+        <button type="submit" class="btn primary">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          Save Changes
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <script>
 (function () {
   var all = document.getElementById('checkAll');
-  if (!all) return;
-  all.addEventListener('change', function () {
-    document.querySelectorAll('.row-check').forEach(function (c) { c.checked = all.checked; });
+  if (all) {
+    all.addEventListener('change', function () {
+      document.querySelectorAll('.row-check').forEach(function (c) { c.checked = all.checked; });
+    });
+  }
+
+  /* ---------- edit-record popup ---------- */
+  var overlay = document.getElementById('editOverlay');
+  if (!overlay) return;
+  var form = document.getElementById('editForm');
+  var ACTION0 = "{{ url_for('admin_edit_student', cid=0) }}";
+  function setVal(id, v) { document.getElementById(id).value = v == null ? '' : v; }
+  function openEdit(btn) {
+    var d = btn.dataset;
+    form.action = ACTION0.replace('/0/', '/' + d.id + '/');
+    document.getElementById('editTitle').textContent = 'Edit Record — ' + d.name;
+    setVal('e-name', d.name); setVal('e-father_name', d.father);
+    setVal('e-cnic', d.cnic); setVal('e-program', d.program);
+    setVal('e-discipline', d.discipline); setVal('e-test_date', d.testDate);
+    setVal('e-total', d.total); setVal('e-obtained', d.obtained);
+    document.getElementById('editStatus').innerHTML =
+      'Current status: <strong>' + d.status + '</strong> — status recalculates automatically after saving.';
+    overlay.hidden = false;
+    requestAnimationFrame(function () { overlay.classList.add('show'); });
+    document.getElementById('e-name').focus();
+  }
+  function closeEdit() {
+    overlay.classList.remove('show');
+    overlay.hidden = true;
+  }
+  document.querySelectorAll('.edit-btn').forEach(function (b) {
+    b.addEventListener('click', function () { openEdit(b); });
+  });
+  overlay.querySelectorAll('[data-close-edit]').forEach(function (b) {
+    b.addEventListener('click', closeEdit);
+  });
+  overlay.addEventListener('click', function (e) { if (e.target === overlay) closeEdit(); });
+  document.addEventListener('keydown', function (e) {
+    var confirmOv = document.getElementById('confirmOverlay');
+    if (e.key === 'Escape' && !overlay.hidden && (!confirmOv || confirmOv.hidden)) closeEdit();
   });
 })();
 </script>

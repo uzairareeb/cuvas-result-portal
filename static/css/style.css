@@ -468,6 +468,17 @@ tr.total-row td { background: #f4f6fd; border-top: 2px solid #d5d9ec; }
   max-width: calc(100vw - 32px); text-align: center; }
 .dl-toast.show { opacity: 1; transform: translate(-50%, 0); }
 
+/* ---------- admin students: fitted table + edit popup ---------- */
+.table-fit table { min-width: 0; }
+.table-fit th, .table-fit td { padding: 10px 12px; }
+.amodal.wide { max-width: 660px; width: 100%; text-align: left; padding: 24px 26px 20px;
+  max-height: calc(100vh - 36px); overflow-y: auto; }
+.amodal.wide .section-head { margin-bottom: 14px; }
+.amodal.wide .section-head h3 { margin: 0; }
+.modal-x { margin-left: auto; background: none; border: none; font-size: 26px; line-height: 1;
+  color: var(--muted); cursor: pointer; padding: 2px 6px; border-radius: 8px; }
+.modal-x:hover { color: var(--ink); background: #f2f4fb; }
+
 /* ---------- result card: QR verification ---------- */
 .rverify { display: flex; gap: 14px; align-items: center; margin: 16px 0 6px;
   padding-top: 14px; border-top: 1px dashed var(--line); text-align: left; }
