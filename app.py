@@ -654,7 +654,7 @@ _DATE_FORMATS = ("%d-%b-%Y", "%d %b %Y", "%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y",
                  "%Y-%m-%d %H:%M:%S", "%d-%b-%Y %H:%M:%S", "%d/%m/%Y %H:%M:%S",
                  "%d %B %Y", "%B %d, %Y", "%d-%B-%Y", "%d %b, %Y", "%B %d %Y",
                  "%d-%b-%y", "%d/%m/%y", "%d-%m-%y", "%Y-%m-%d %H:%M",
-                 "%Y-%m-%dT%H:%M:%S")
+                 "%Y-%m-%dT%H:%M:%S", "%b %d %Y", "%b %d, %y", "%B %d, %y")
 
 
 def fmt_cnic(cnic):
@@ -675,6 +675,12 @@ def parse_date(s):
     cleaned = " ".join(cleaned.replace(",", " ").split())
     if cleaned != s:
         candidates.append(cleaned)
+    # Month-abbreviation periods: "Aug. 26, 2025" / "Sept. 5, 2025"
+    dotted = re.sub(r"\b(Sept)\.", "Sep", cleaned, flags=re.I)
+    dotted = re.sub(r"\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.",
+                    r"\1", dotted, flags=re.I)
+    if dotted != cleaned:
+        candidates.append(dotted)
     for cand in candidates:
         for f in _DATE_FORMATS:
             try:
