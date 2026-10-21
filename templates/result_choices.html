@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="hero">
+  <div class="hero-badge">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+  </div>
+  <h1>Multiple Applications Found</h1>
+  <p class="lede">CNIC <strong>{{ cnic_disp }}</strong> has applied for <strong>{{ apps|length }} degrees</strong>{% if sess_name %} in {{ sess_name }}{% endif %}. Please select a degree to view its result card.</p>
+  <div class="apps-list">
+    {% for a in apps %}
+    <a class="app-btn" href="{{ a.url }}">
+      <span class="app-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10L12 5 2 10l10 5 10-5z"/><path d="M6 12.5V16c0 1.7 2.7 3 6 3s6-1.3 6-3v-3.5"/></svg></span>
+      <span class="app-main">
+        <span class="app-degree">{{ a.degree }}</span>
+        <span class="app-meta"><span class="pill prog">{{ a.program }}</span>{% if a.held_on %} <span class="app-date">Test held: {{ a.held_on }}</span>{% endif %}</span>
+      </span>
+      <span class="app-go">View Result Card
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>
+      </span>
+    </a>
+    {% endfor %}
+  </div>
+  <div class="actions" style="justify-content:center">
+    <a class="btn" href="{{ url_for('index') }}">Check Another CNIC</a>
+  </div>
+</div>
+{% endblock %}
